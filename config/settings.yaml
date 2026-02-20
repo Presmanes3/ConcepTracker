@@ -1,0 +1,5 @@
+pricing:
+  eu.amazon.nova-micro-v1:0:
+    input: 0.035
+    output: 0.14
+active_model_id: eu.amazon.nova-micro-v1:0

@@ -1,8 +1,5 @@
-from shared.schemas.workflow import WorkflowState
-from shared.schemas.normalizer_agent import NormalizerAgentInput
-from shared.schemas.chunk_embed_agent import ChunkEmbedAgentInput
+from shared.schemas.workflow.ingest import IngestState
 from src.agents.normalizer_agent import NormalizerAgent
-from src.agents.chunk_embed_agent import ChunkEmbedAgent
 
 user_input_dict = {
     "raw_message": "  Hola, esto es un mensaje de prueba sobre IA...  ",

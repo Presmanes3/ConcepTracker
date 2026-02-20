@@ -2,9 +2,8 @@ from typing import List, Dict, Any, Optional
 from langchain_aws import BedrockEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from shared.schemas.chunk_embed_agent import ChunkEmbedAgentInput
-from shared.schemas.note_chunk import NoteChunk
-from shared.schemas.workflow import WorkflowState
+from shared.schemas.workflow.ingest import IngestState
+from shared.schemas.agents.embedding import NoteChunk, ChunkEmbedResult
 
 class ChunkEmbedAgent:
     """

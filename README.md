@@ -1,15 +1,33 @@
-# ConcepTracker
-ConcepTracker is a local-first, multi-agent knowledge app that helps you capture ideas over days and weeks without losing context. It turns scattered notes into an evolving concept graph by automatically suggesting links, surfacing related thoughts, and scheduling lightweight review/track-back workflows.
+# ConcepTracker 🧠
+ConcepTracker is a CLI-first, atomic knowledge network. No more notes in drawers; everything is a node in your personal brain graph.
 
-## Core features:
+## 🚀 Las 3 Core Features (CLI Edition)
 
-- Capture notes quickly (Markdown/text) with metadata (source, tags, confidence).
+### 1. Smart Ingest (Captura Atómica)
+Recibe un texto, url o idea. El sistema limpia el texto, genera un resumen de una línea, extrae Keywords y genera Embeddings automáticamente.
+- **Comando:** `ct add "La arquitectura RAG con GraphRAG mejora el contexto global" --tag "AI"`
 
-- Semantic search + auto-link suggestions with evidence from your own notes.
+### 2. Auto-Linking & Contextual Storage
+Al guardar una nota, el sistema busca en el pasado (Vector Search) y decide si esta nota refuerza, contradice o se relaciona con algo anterior. Las relaciones se guardan con su motivo técnico.
+- **Output:** Al guardar, verás: *"Vinculada automáticamente con 'Post sobre RAG de hace 3 semanas' (Similitud: 89%)"*.
 
-- Concept graph visualization and idea timelines for long-term tracking.
+### 3. Concept Traceability (El "Trace")
+Visualización de línea de tiempo contextual para terminal.
+- **Comando:** `ct trace "inversión"` o `ct trace "langgraph"`
+- **Output:** Timeline vertical ASCII con la evolución de la idea y sus relaciones.
 
-- Review workflows (7/30/90-day revisits) and weekly digests to fight forgetting.
+---
+
+## 🛠 Setup Quickstart
+
+1. **Docker Compose**: `docker-compose up -d` (Postgres + pgvector).
+2. **Setup DB**: `ct init`
+3. **Capture**: `ct add "Tu gran idea aquí"`
+
+---
+
+## 📋 Roadmap (TODO List)
+Ver [TODO.md](TODO.md) para el detalle de la implementación actual.
 
 ### CF 1: Note Capture & Ingestion
 

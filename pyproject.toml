@@ -8,8 +8,38 @@ version = "0.1.0"
 dependencies = [
     "langgraph",
     "pydantic",
-    "langchain"
+    "langchain",
+    "langchain-aws",
+    "langchain-community",
+    "boto3",
+    "sqlmodel",
+    "pgvector",
+    "psycopg2-binary",
+    "typer",
+    "rich",
+    "python-dotenv",
+    "PyYAML"
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Markers to separate unit (free) from integration (uses Bedrock)
+markers = [
+    "unit: pure logic tests, no network calls",
+    "integration: calls real AWS Bedrock — requires credentials",
+]
+
+[project.scripts]
+ct = "src.cli.main:app"
 
 [tool.setuptools.packages.find]
 where = ["."]
