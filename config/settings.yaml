@@ -11,5 +11,5 @@ services:
   transcribe: true
 transcription:
   enhancement_pipeline:
-    - speech_cleaner
-    - markdown_formatter
+  - speech_cleaner
+  - markdown_formatter

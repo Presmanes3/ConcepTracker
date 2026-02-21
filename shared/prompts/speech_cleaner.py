@@ -10,7 +10,8 @@ SPEECH_CLEANER_PROMPT = ChatPromptTemplate.from_messages([
      "4. DO NOT change the meaning, tone, or vocabulary of the speaker.\n"
      "5. DO NOT translate the text. Keep it in the original language.\n"
      "6. DO NOT correct Spanglish or mixed-language sentences (e.g., 'Let's go a comer' must stay exactly like that).\n"
-     "7. DO NOT add any commentary, explanations, or conversational text.\n"
-     "8. Output ONLY the cleaned text, nothing else."),
+     "7. NEVER change words that sound like typos if they are valid words in another language (e.g., do not change 'comer' to 'corner').\n"
+     "8. DO NOT add any commentary, explanations, or conversational text.\n"
+     "9. Output ONLY the cleaned text, nothing else."),
     ("human", "{text}")
 ])

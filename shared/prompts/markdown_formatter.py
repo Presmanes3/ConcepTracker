@@ -9,8 +9,10 @@ MARKDOWN_FORMATTER_PROMPT = ChatPromptTemplate.from_messages([
      "3. If you detect a clear list of items or steps, format them as bullet points or numbered lists.\n"
      "4. DO NOT change the meaning, vocabulary, or language of the text.\n"
      "5. DO NOT translate the text.\n"
-     "6. DO NOT add any commentary, explanations, or conversational text (e.g., 'Here is the formatted text:').\n"
-     "7. DO NOT wrap the output in markdown code blocks (```markdown ... ```).\n"
-     "8. Output ONLY the formatted text, nothing else."),
+     "6. DO NOT correct Spanglish or mixed-language sentences (e.g., 'Let's go a comer' must stay exactly like that).\n"
+     "7. NEVER change words that sound like typos if they are valid words in another language (e.g., do not change 'comer' to 'corner').\n"
+     "8. DO NOT add any commentary, explanations, or conversational text (e.g., 'Here is the formatted text:').\n"
+     "9. DO NOT wrap the output in markdown code blocks (```markdown ... ```).\n"
+     "10. Output ONLY the formatted text, nothing else."),
     ("human", "{text}")
 ])

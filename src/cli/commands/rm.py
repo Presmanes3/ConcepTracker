@@ -3,9 +3,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
-from src.repository.note_repository import repository
-from src.services.embedding_service import embedding_service
 from src.cli.registry import registry
+from src.registry import repos
+from src.services.embedding_service import embedding_service
+from src.cli.views import render_delete_selection_table, render_delete_confirmation
 
 console = Console()
 
@@ -22,35 +23,25 @@ def rm(
     """
     Remove a note and its links from the graph.
     """
+
+    
     if note_id is None:
         if search:
             # Semantic search to find the ID
             with console.status(f"[cyan]Searching for '{search}' to delete...[/cyan]"):
                 vector = embedding_service.get_embedding(search)
-                results = repository.semantic_search(vector, limit=5)
+                results = repos.notes.semantic_search(vector, limit=5)
                 notes = [r[0] for r in results]
         else:
             # Just show recent notes
-            notes = repository.get_all_notes(limit=10)
+            notes = repos.notes.get_all_notes(limit=10)
         
         if not notes:
             console.print("[yellow]No notes found matching your criteria.[/yellow]")
             return
         
-        table = Table(
-            title="[bold red]Select a Note to Delete[/bold red]", 
-            border_style="dim", 
-            box=None,
-            header_style="bold cyan"
-        )
-        table.add_column("ID", justify="right", style="bold yellow", no_wrap=True)
-        table.add_column("Summary", style="white")
-        table.add_column("Created At", style="dim cyan")
-
-        for n in notes:
-            table.add_row(str(n.id), n.summary, n.created_at.strftime("%Y-%m-%d %H:%M"))
-
-        console.print(table)
+        render_delete_selection_table(notes)
+        
         note_id_str = Prompt.ask("\n[bold red]Enter the ID to delete[/bold red]", default="")
         if not note_id_str:
             console.print("[dim]Action cancelled.[/dim]")
@@ -62,27 +53,15 @@ def rm(
             return
 
     # Delete confirmation
-    note = repository.get_note_by_id(note_id)
+    note = repos.notes.get_note_by_id(note_id)
     if not note:
         console.print(f"[red]Note with ID {note_id} not found.[/red]")
         return
 
-    # UX: Highlighting what is being deleted in a red Panel
-    details = (
-        f"[bold]Summary:[/bold] {note.summary}\n"
-        f"[bold]Content:[/bold] [italic]{note.content}[/italic]\n\n"
-        f"[red]⚠️ This will permanently remove this note and all its connections.[/red]"
-    )
-    
-    console.print("\n")
-    console.print(Panel(
-        details, 
-        title=f"[white]Confirm Deletion of ID: {note.id}[/white]", 
-        border_style="red"
-    ))
+    render_delete_confirmation(note)
 
     if Confirm.ask("Are you sure?", default=False):
-        if repository.delete_note(note_id):
+        if repos.notes.delete_note(note_id):
             console.print(f"\n✅ [bold green]Concept {note_id} has been erased from your brain.[/bold green]")
         else:
             console.print(f"❌ [red]Failed to delete Note {note_id}.[/red]")

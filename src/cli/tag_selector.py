@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Callable
 from rich.console import Console, Group, RenderableType
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.live import Live
-from src.cli.pager import _getch_with_timeout, _is_up, _is_down, _is_select, _is_quit
+from rich.columns import Columns
+from src.cli.pager import _getch_with_timeout, _is_up, _is_down, _is_select, _is_quit, _is_prev_page, _is_next_page
 
 console = Console()
 
@@ -32,6 +33,7 @@ class TagPanel:
         selected: Set[str],
         input_mode: bool,
         input_text: str,
+        height: Optional[int] = None,
     ) -> Panel:
         icon    = "▼" if self.expanded else "▶"
         c       = self.color
@@ -42,7 +44,7 @@ class TagPanel:
         if not self.expanded:
             # Fixed height so collapsing never leaves ghost lines
             return Panel("", title=title, title_align="left",
-                         border_style=border, height=3, padding=(0, 1))
+                         border_style=border, height=height, padding=(0, 1))
 
         tbl = Table(box=None, show_header=False, padding=(0, 1))
         tbl.add_column("cb",   justify="center", width=3, no_wrap=True)
@@ -75,7 +77,7 @@ class TagPanel:
                 tbl.add_row(cb, item["name"], src, style=row_style)
 
         return Panel(tbl, title=title, title_align="left",
-                     border_style=border, padding=(0, 1))
+                     border_style=border, height=height, padding=(0, 1))
 
 
 # ---------------------------------------------------------------------------
@@ -87,11 +89,11 @@ class TagSelectorUI:
         self,
         panels: List[TagPanel],
         initial_selected: Set[str],
-        dashboard: Optional[RenderableType] = None,
+        on_done: Optional[Callable[[List[str]], None]] = None,
     ):
         self.panels      = panels
         self.selected    = set(initial_selected)
-        self.dashboard   = dashboard
+        self.on_done     = on_done
 
         self.panel_focus = 0
         self.tag_focus   = -1   # -1 = panel header is focused
@@ -112,22 +114,12 @@ class TagSelectorUI:
 
     def render(self) -> RenderableType:
         # Calculate max possible height to prevent UI jumping
-        max_height = 0
-        current_height = 0
+        max_panel_height = 0
         for p in self.panels:
             p_max = max(len(p.tags) + 2, 3)
-            max_height += p_max
-            if p.expanded:
-                current_height += p_max
-            else:
-                current_height += 3
+            if p_max > max_panel_height:
+                max_panel_height = p_max
                 
-        # Preview panel height: 3, Hint height: 2
-        max_height += 5
-        current_height += 5
-        
-        padding_lines = max_height - current_height
-        
         panels = [
             p.render(
                 focused    = (i == self.panel_focus),
@@ -135,23 +127,22 @@ class TagSelectorUI:
                 selected   = self.selected,
                 input_mode = self.input_mode,
                 input_text = self.input_text,
+                height     = max_panel_height if p.expanded else 3,
             )
             for i, p in enumerate(self.panels)
         ]
+        
+        columns = Columns(panels, expand=True, equal=True)
+        
         hint = Text(
-            "\\n\\u2191\\u2193 Navigate   Space / Enter  Toggle   q  Confirm   Esc  Cancel",
+            "\n↑↓ Navigate   ←→ Switch Category   Space / Enter  Toggle   q  Confirm   Esc  Cancel",
             style="dim", justify="center",
         )
         
-        items = [*panels, self._preview(), hint]
-        if padding_lines > 0:
-            # Group adds a newline between items, so Text("\\n" * (padding_lines - 1)) gives exactly padding_lines empty lines
-            items.append(Text("\\n" * (padding_lines - 1)))
+        items = [columns, self._preview(), hint]
             
         selector = Group(*items)
-        if self.dashboard:
-            return Group(self.dashboard, selector)
-        return selector
+        return Panel(selector, title="[bold magenta]Manage Tags[/bold magenta]", border_style="magenta")
 
     # -- Key handling ---------------------------------------------------------
 
@@ -194,17 +185,22 @@ class TagSelectorUI:
         if _is_up(kind, key):
             if self.tag_focus > -1:
                 self.tag_focus -= 1
-            elif self.panel_focus > 0:
-                self.panel_focus -= 1
-                prev = self.panels[self.panel_focus]
-                self.tag_focus = (len(prev.tags) - 1) if prev.expanded else -1
 
         elif _is_down(kind, key):
             if is_ex and self.tag_focus < n - 1:
                 self.tag_focus += 1
-            elif self.panel_focus < len(self.panels) - 1:
+
+        elif _is_prev_page(kind, key):
+            if self.panel_focus > 0:
+                self.panel_focus -= 1
+                prev = self.panels[self.panel_focus]
+                self.tag_focus = min(self.tag_focus, len(prev.tags) - 1) if prev.expanded else -1
+
+        elif _is_next_page(kind, key):
+            if self.panel_focus < len(self.panels) - 1:
                 self.panel_focus += 1
-                self.tag_focus    = -1
+                next_panel = self.panels[self.panel_focus]
+                self.tag_focus = min(self.tag_focus, len(next_panel.tags) - 1) if next_panel.expanded else -1
 
         elif kind == "char" and key == b" ":
             if self.tag_focus == -1:
@@ -224,9 +220,13 @@ class TagSelectorUI:
                 self.input_mode = True
                 self.input_text = ""
             else:
+                if self.on_done:
+                    self.on_done(list(self.selected))
                 return "done"
 
         elif _is_quit(kind, key):
+            if self.on_done:
+                self.on_done(list(self.selected))
             return "done"
 
         return None
@@ -236,13 +236,13 @@ class TagSelectorUI:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def select_tags_ui(
+def build_tag_selector_ui(
     current_tags: List[str],
     ai_tags:      List[str],
     db_tags:      List[Dict[str, Any]],
-    dashboard_renderable: Optional[RenderableType] = None,
-) -> List[str]:
-    """Launch the interactive tag selector; returns final selected tags."""
+    on_done: Optional[Callable[[List[str]], None]] = None,
+) -> TagSelectorUI:
+    """Builds the interactive tag selector UI component."""
     seen: Set[str] = set()
 
     manual: List[Dict] = []
@@ -274,9 +274,21 @@ def select_tags_ui(
         TagPanel("📚 System / Similar", "green",   system),
     ]
 
-    ui = TagSelectorUI(panels, set(current_tags), dashboard=dashboard_renderable)
+    return TagSelectorUI(panels, set(current_tags), on_done=on_done)
 
-    # Fixed height padding prevents ghost lines, so we can render inline
+def select_tags_ui(
+    current_tags: List[str],
+    ai_tags:      List[str],
+    db_tags:      List[Dict[str, Any]],
+    dashboard_renderable: Optional[RenderableType] = None,
+) -> List[str]:
+    """Launch the interactive tag selector; returns final selected tags."""
+    ui = build_tag_selector_ui(current_tags, ai_tags, db_tags)
+    if dashboard_renderable:
+        # Wrap it if needed for legacy calls
+        pass
+
+    # Use Live without screen=True, but with fixed height padding to prevent ghost lines
     with Live(ui.render(), auto_refresh=False) as live:
         while True:
             kind, key = _getch_with_timeout(0.1)

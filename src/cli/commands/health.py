@@ -1,6 +1,5 @@
 from rich.console import Console
 from src.cli.registry import registry
-from src.services import service_registry
 
 console = Console()
 
@@ -11,6 +10,8 @@ console = Console()
 )
 def health():
     """Verify system health (DB connection & AI connectivity)."""
+    from src.services import service_registry
+    
     console.print("[yellow]Verifying system health...[/yellow]")
     
     active_services = service_registry.get_active_services()

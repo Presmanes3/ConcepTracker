@@ -1,5 +1,6 @@
 from rich.console import Console
 from src.cli.registry import registry
+
 from src.services import service_registry
 
 console = Console()
@@ -11,6 +12,8 @@ console = Console()
 )
 def init():
     """Build the brain. Initialize database and pgvector extension."""
+
+    
     console.print("[yellow]Initializing services...[/yellow]")
     
     active_services = service_registry.get_active_services()
