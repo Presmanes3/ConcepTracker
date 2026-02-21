@@ -25,16 +25,18 @@ class NoteRepository:
             session.refresh(note)
             return note
 
-    def update_note(self, note_id: int, content: Optional[str] = None, summary: Optional[str] = None) -> Optional[Note]:
+    def update_note(self, note_id: int, content: Optional[str] = None, summary: Optional[str] = None, tags: Optional[str] = None) -> Optional[Note]:
         """Updates an existing note's editable fields."""
         with get_session() as session:
             note = session.get(Note, note_id)
             if not note:
                 return None
-            if content:
+            if content is not None:
                 note.content = content
-            if summary:
+            if summary is not None:
                 note.summary = summary
+            if tags is not None:
+                note.tags = tags
             session.add(note)
             session.commit()
             session.refresh(note)
@@ -65,32 +67,104 @@ class NoteRepository:
             query = query.order_by(Note.created_at.desc()).limit(limit)
             return session.exec(query).all()
 
+    def get_all_unique_tags(self) -> List[str]:
+        """Retrieves a sorted list of all unique tags used across all notes."""
+        with get_session() as session:
+            query = select(Note.tags).where(Note.tags != None).where(Note.tags != "")
+            results = session.exec(query).all()
+            
+            unique_tags = set()
+            for tag_string in results:
+                tags = [t.strip() for t in tag_string.split(",") if t.strip()]
+                unique_tags.update(tags)
+                
+            return sorted(list(unique_tags))
+
     def get_notes_by_ids(self, note_ids: List[int]) -> List[Note]:
         """Retrieves multiple notes by their primary IDs, sorted by date."""
         with get_session() as session:
             query = select(Note).where(Note.id.in_(note_ids)).order_by(Note.created_at.asc())
             return session.exec(query).all()
 
-    def get_similar_notes(self, current_id: Optional[int], embedding: List[float], limit: int = 5, threshold: float = 1.0) -> List[Dict[str, Any]]:
-        """Vector-based search for nearest neighbors using pgvector."""
+    def get_recent_notes(self, limit: int = 3, exclude_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Retrieves the most recently created notes for temporal context linking."""
         with get_session() as session:
-            query = text("""
-                SELECT id, content, summary,
-                       (embedding <=> CAST(:vec AS vector)) as distance,
-                       domain, domain_family
-                FROM notes 
-                WHERE (id != :current_id OR :current_id IS NULL)
-                AND (embedding <=> CAST(:vec AS vector)) < :threshold
-                ORDER BY distance ASC
-                LIMIT :limit
-            """)
-            vec_str = str(embedding)
-            results = session.execute(query, {
-                "current_id": current_id, 
-                "vec": vec_str, 
-                "limit": limit,
-                "threshold": threshold
-            }).fetchall()
+            query = select(Note)
+            if exclude_id is not None:
+                query = query.where(Note.id != exclude_id)
+            query = query.order_by(Note.created_at.desc()).limit(limit)
+            notes = session.exec(query).all()
+            
+            return [
+                {
+                    "id": n.id,
+                    "content": n.content,
+                    "summary": n.summary,
+                    "distance": 0.0, # Temporal notes don't have a semantic distance
+                    "domain": n.domain,
+                    "domain_family": n.domain_family,
+                    "is_recent": True
+                }
+                for n in notes
+            ]
+
+    def get_similar_notes(self, current_id: Optional[int], embedding: List[float], query_text: Optional[str] = None, limit: int = 5, threshold: float = 1.0) -> List[Dict[str, Any]]:
+        """Hybrid search: Vector-based nearest neighbors (pgvector) + Lexical search (BM25)."""
+        with get_session() as session:
+            if query_text:
+                # Hybrid search: Semantic + Lexical
+                query = text("""
+                    WITH semantic AS (
+                        SELECT id, content, summary, domain, domain_family,
+                               (embedding <=> CAST(:vec AS vector)) as distance
+                        FROM notes
+                        WHERE (id != :current_id OR :current_id IS NULL)
+                          AND (embedding <=> CAST(:vec AS vector)) < :threshold
+                    ),
+                    lexical AS (
+                        SELECT id,
+                               ts_rank_cd(to_tsvector('spanish', content), plainto_tsquery('spanish', :query_text)) as lexical_score
+                        FROM notes
+                        WHERE (id != :current_id OR :current_id IS NULL)
+                          AND plainto_tsquery('spanish', :query_text) @@ to_tsvector('spanish', content)
+                    )
+                    SELECT s.id, s.content, s.summary, s.distance, s.domain, s.domain_family,
+                           COALESCE(l.lexical_score, 0) as lexical_score,
+                           (s.distance - (COALESCE(l.lexical_score, 0) * 0.1)) as hybrid_score
+                    FROM semantic s
+                    LEFT JOIN lexical l ON s.id = l.id
+                    ORDER BY hybrid_score ASC
+                    LIMIT :limit
+                """)
+                params = {
+                    "current_id": current_id, 
+                    "vec": str(embedding), 
+                    "query_text": query_text,
+                    "limit": limit,
+                    "threshold": threshold
+                }
+            else:
+                # Pure semantic search
+                query = text("""
+                    SELECT id, content, summary,
+                           (embedding <=> CAST(:vec AS vector)) as distance,
+                           domain, domain_family,
+                           0.0 as lexical_score,
+                           (embedding <=> CAST(:vec AS vector)) as hybrid_score
+                    FROM notes 
+                    WHERE (id != :current_id OR :current_id IS NULL)
+                    AND (embedding <=> CAST(:vec AS vector)) < :threshold
+                    ORDER BY distance ASC
+                    LIMIT :limit
+                """)
+                params = {
+                    "current_id": current_id, 
+                    "vec": str(embedding), 
+                    "limit": limit,
+                    "threshold": threshold
+                }
+                
+            results = session.execute(query, params).fetchall()
             return [
                 {
                     "id": r[0],
@@ -99,6 +173,7 @@ class NoteRepository:
                     "distance": float(r[3]),
                     "domain": r[4],
                     "domain_family": r[5],
+                    "is_recent": False
                 }
                 for r in results
             ]

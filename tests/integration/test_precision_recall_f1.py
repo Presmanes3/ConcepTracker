@@ -323,17 +323,38 @@ def _cleanup(results: list[IngestResult]) -> None:
 
 
 def _build_link_set(results: list[IngestResult]) -> set[tuple[str, str]]:
-    """Return set of (label_a, label_b) pairs (direction-normalised, sorted)."""
-    label_map: dict[int, str] = {r.note_id: r.label for r in results if r.note_id}
+    """
+    Return set of (label_a, label_b) pairs (direction-normalised, sorted).
+
+    Queries the DB directly so that BOTH forward links and retrospective links
+    (saved by RetrospectiveLinkerAgent) are captured.  Relying only on
+    `r.links_created` would miss links created in the retro pass.
+    """
+    from src.utils.db import get_session
+    from sqlalchemy import text
+
+    ids = [r.note_id for r in results if r.note_id]
+    if not ids:
+        return set()
+
+    id_to_label: dict[int, str] = {r.note_id: r.label for r in results if r.note_id}
     links: set[tuple[str, str]] = set()
-    for r in results:
-        if not r.note_id:
-            continue
-        for lnk in r.links_created:
-            tid = lnk.get("target_id")
-            if tid and tid in label_map:
-                pair = tuple(sorted([r.label, label_map[tid]]))
-                links.add(pair)
+
+    with get_session() as session:
+        rows = session.execute(
+            text(
+                "SELECT source_id, target_id FROM links "
+                "WHERE source_id = ANY(:ids) AND target_id = ANY(:ids)"
+            ),
+            {"ids": ids},
+        ).fetchall()
+
+    for src_id, tgt_id in rows:
+        src_label = id_to_label.get(src_id)
+        tgt_label = id_to_label.get(tgt_id)
+        if src_label and tgt_label:
+            links.add(tuple(sorted([src_label, tgt_label])))
+
     return links
 
 

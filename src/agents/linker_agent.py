@@ -31,16 +31,19 @@ class LinkerAgent(BaseAgent[IngestState, LinkerResult]):
         past_notes_lines = []
         new_family = taxonomy.domain_family if taxonomy else None
         for n in state.similar_notes:
+            is_recent = n.get("is_recent", False)
             dist = n.get("distance", 1.0)
-            tier = similarity_tier(dist)
-            if tier == "Distant":
+            tier = "Temporal Context" if is_recent else similarity_tier(dist)
+            
+            if tier == "Distant" and not is_recent:
                 continue
+                
             summary = n.get("summary", "")
             cand_family = n.get("domain_family") or None
 
             # ── Python-level domain guard (hard filter, pre-LLM) ────────────
             # If we know both families and they differ, only pass the candidate
-            # through if it is High similarity or marked as a PARENT CONCEPT.
+            # through if it is High similarity, marked as a PARENT CONCEPT, or is RECENT.
             # Weak/Moderate cross-family candidates are excluded entirely —
             # never shown to the LLM, so the model cannot override this rule.
             is_parent = bool(is_component_of and is_component_of.lower() in summary.lower())
@@ -49,11 +52,18 @@ class LinkerAgent(BaseAgent[IngestState, LinkerResult]):
                 and cand_family
                 and new_family != cand_family
                 and not is_parent
+                and not is_recent
                 and tier != "High similarity"
             ):
                 continue  # hard drop — cross-family non-parent below High tier
 
-            label = f"PARENT CONCEPT | family:{cand_family}" if is_parent else f"{tier} | family:{cand_family or 'unknown'}"
+            if is_parent:
+                label = f"PARENT CONCEPT | family:{cand_family}"
+            elif is_recent:
+                label = f"RECENT NOTE | family:{cand_family or 'unknown'}"
+            else:
+                label = f"{tier} | family:{cand_family or 'unknown'}"
+                
             past_notes_lines.append(f"[{label}] ID {n['id']}: {summary}")
 
         if not past_notes_lines:

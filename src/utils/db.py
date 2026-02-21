@@ -7,6 +7,7 @@ from shared.schemas.models.archipelago import Archipelago
 from shared.schemas.models.note import Note
 from shared.schemas.models.link import Link
 from shared.schemas.models.inference_log import InferenceLog
+from shared.schemas.models.transcription import Transcription
 
 load_dotenv()
 

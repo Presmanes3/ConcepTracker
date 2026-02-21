@@ -29,6 +29,7 @@ Your output will be used as a hard signal by downstream agents:
 | nutrition             | intermittent fasting, ketosis, gut microbiome             |
 | biology               | cells, DNA, evolution, neuroscience (unless psychology)   |
 | productivity          | GTD, time-blocking, Pomodoro (NOT the same as pkm)        |
+| psychology            | habits, motivation, cognitive load, flow state, mindset — even when framed as methods |
 | finance               | investing, budgeting, compound interest                   |
 | history               | historical events, historical figures                     |
 | philosophy            | ethics, epistemology, logic                               |
@@ -61,6 +62,11 @@ Output: concept_name="GraphQL", concept_type="tool", domain="software_engineerin
 Input: "The PARA method organises all digital information into four top-level categories: Projects, Areas, Resources and Archives."
 Output: concept_name="PARA method", concept_type="methodology", domain="pkm",
         domain_family="knowledge_work", sub_domain="information_organisation", is_component_of=null
+
+# Pattern 6 — psychology ≠ productivity: habit change is life_sciences even when framed as a system
+Input: "The habit loop is a neurological cycle of cue, routine and reward that encodes automatic behaviours in the basal ganglia."
+Output: concept_name="habit loop", concept_type="phenomenon", domain="psychology",
+        domain_family="life_sciences", sub_domain="behavioral_psychology", is_component_of=null
 """
 
 TAXONOMY_HUMAN_PROMPT = """\

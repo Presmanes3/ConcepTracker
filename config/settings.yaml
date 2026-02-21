@@ -1,5 +1,15 @@
+active_model_id: eu.amazon.nova-micro-v1:0
+audio:
+  input_device_id: 8
 pricing:
   eu.amazon.nova-micro-v1:0:
     input: 0.035
     output: 0.14
-active_model_id: eu.amazon.nova-micro-v1:0
+services:
+  bedrock: true
+  database: true
+  transcribe: true
+transcription:
+  enhancement_pipeline:
+    - speech_cleaner
+    - markdown_formatter

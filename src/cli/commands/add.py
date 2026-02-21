@@ -67,9 +67,14 @@ def add(content: str, tag: str = None):
         if links:
             console.print(f"[bold cyan]Auto-Linked with {len(links)} past references:[/bold cyan]")
             for link in links:
-                target = note_repository.get_note_by_id(link["target_id"])
-                t_summary = target.summary if target else f"Note {link['target_id']}"
-                console.print(f" 🔗 [blue]{link['relation_type']}[/blue] -> {t_summary} (Reason: {link['reason']})")
+                # Handle both dict and Pydantic model formats
+                target_id = link.target_id if hasattr(link, 'target_id') else link["target_id"]
+                relation_type = link.relation_type if hasattr(link, 'relation_type') else link["relation_type"]
+                reason = link.reason if hasattr(link, 'reason') else link["reason"]
+                
+                target = note_repository.get_note_by_id(target_id)
+                t_summary = target.summary if target else f"Note {target_id}"
+                console.print(f" 🔗 [blue]{relation_type}[/blue] -> {t_summary} (Reason: {reason})")
         else:
             console.print("[italic yellow]No direct relations found in the past. New atomic island created.[/italic yellow]")
         # --- Geography ---

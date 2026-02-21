@@ -9,6 +9,7 @@ from .find import find
 from .help_cmd import help_command
 from .stats import stats
 from .config import config_cmd
+from .live_transcription import live_transcription
 
 __all__ = [
     "auth",
@@ -21,5 +22,6 @@ __all__ = [
     "find",
     "help_command",
     "stats",
-    "config_cmd"
+    "config_cmd",
+    "live_transcription"
 ]

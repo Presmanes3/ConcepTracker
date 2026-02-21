@@ -36,6 +36,16 @@ class LinkRepository:
             query = select(Link).where(Link.target_id == target_id)
             return session.exec(query).all()
 
+    def delete_link(self, link_id: int) -> bool:
+        """Deletes a specific link by its ID."""
+        with get_session() as session:
+            link = session.get(Link, link_id)
+            if not link:
+                return False
+            session.delete(link)
+            session.commit()
+            return True
+
     def delete_links_for_note(self, note_id: int) -> int:
         """Removes all links (incoming/outgoing) for a note."""
         with get_session() as session:

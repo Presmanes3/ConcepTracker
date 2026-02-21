@@ -1,10 +1,12 @@
 import typer
 from rich.console import Console
-from rich.panel import Panel
+from rich.table import Table
 from src.repository.note_repository import repository
-from src.repository.archipelago_repository import archipelago_repository
 from src.services.embedding_service import embedding_service
 from src.cli.registry import registry
+from src.cli.pager import paginate_table
+from src.cli.interactors.note_menu import show_note_action_menu
+from src.cli.ui import build_note_preview, get_archipelago_badge
 
 console = Console()
 
@@ -13,38 +15,85 @@ console = Console()
     description="Semantic search through your knowledge.",
     example='ct find "concepts about machine learning"'
 )
-def find(query: str = typer.Argument(..., help="Semantic search query")):
+def find(
+    query: str = typer.Argument(..., help="Semantic search query"),
+    limit: int = typer.Option(10, "--limit", "-l", help="Max results to retrieve"),
+    page_size: int = typer.Option(10, "--page-size", "-p", help="Rows per page"),
+):
     """Find concepts by meaning (Semantic Search) using AI."""
-    with console.status(f"[cyan]Searching for '{query}'...[/cyan]"):
-        # 1. Vectorize query
-        vector = embedding_service.get_embedding(query)
-        # 2. Semantic search in DB
-        results = repository.semantic_search(vector, limit=5)
+    while True:
+        with console.status(f"[cyan]Searching for '{query}'...[/cyan]"):
+            vector = embedding_service.get_embedding(query)
+            results = repository.semantic_search(vector, limit=limit)
 
-    if not results:
-        console.print("[yellow]No similar concepts found.[/yellow]")
-        return
+        if not results:
+            console.print("[yellow]No similar concepts found.[/yellow]")
+            return
 
-    console.print(f"\n[bold]Top matches for:[/bold] [italic]'{query}'[/italic]\n")
-    for note, distance in results:
-        # Distance to Similarity percentage (simple inversion for UX)
-        # Cosine distance 0 -> 1. Closer to 0 is more similar.
-        percentage = int((1 - distance) * 100)
-        percentage = max(0, min(100, percentage))
+        # Pre-resolve archipelago badges
+        arch_cache: dict = {}
+        for note, _ in results:
+            if note.archipelago_id and note.archipelago_id not in arch_cache:
+                arch_cache[note.archipelago_id] = get_archipelago_badge(note.archipelago_id)
 
-        color = "green" if percentage > 70 else "yellow"
+        def build_table(chunk, cursor_index, start_idx, expanded_states):
+            table = Table(
+                title=f"Top {len(results)} matches for: [italic]'{query}'[/italic]",
+                border_style="blue",
+                box=None,
+            )
+            table.add_column("Match", style="green", justify="right")
+            table.add_column("ID", style="cyan", justify="right")
+            table.add_column("Date", style="dim")
+            table.add_column("Tag", style="magenta")
+            table.add_column("Archipelago", style="yellow")
+            table.add_column("Summary", style="white")
 
-        # Geography badge
-        arch_badge = "[dim]\U0001f3dd\ufe0f  Island[/dim]"
-        if note.archipelago_id:
-            arch = archipelago_repository.get_archipelago_by_id(note.archipelago_id)
-            if arch:
-                icon = "\U0001f30d" if arch.type == "continent" else "\U0001f5fa\ufe0f"
-                arch_badge = f"{icon} [yellow]{arch.name}[/yellow]"
+            for i, item in enumerate(chunk):
+                note, distance = item
+                global_idx = start_idx + i
+                
+                percentage = max(0, min(100, int((1 - distance) * 100)))
+                match_color = "green" if percentage > 70 else "yellow"
+                match_str = f"[{match_color}]{percentage}%[/{match_color}]"
+                
+                arch_label = arch_cache.get(note.archipelago_id, "[dim]~island~[/dim]")
+                
+                # Highlight the row if it's the cursor
+                style = "reverse" if i == cursor_index else None
+                
+                # Add expand indicator
+                is_expanded = global_idx in expanded_states
+                expand_indicator = "[-]" if is_expanded else "[+]"
+                id_str = f"{expand_indicator} {note.id}"
+                
+                # Truncate summary for the table view to keep it clean
+                summary = note.summary
+                if len(summary) > 50:
+                    summary = summary[:47] + "..."
+                
+                table.add_row(
+                    match_str,
+                    id_str,
+                    note.created_at.strftime("%b %d %H:%M"),
+                    note.tags or "-",
+                    arch_label,
+                    summary,
+                    style=style
+                )
+            return table
 
-        console.print(Panel(
-            f"{note.content}\n\n[dim]Summary: {note.summary}[/dim]",
-            title=f"[{color}]{percentage}% Match (ID: {note.id})[/{color}]",
-            subtitle=f"[magenta]{note.tags or 'No Tag'}[/magenta]  {arch_badge}",
-            border_style=color
-        ))
+        def build_preview(item):
+            note, distance = item
+            percentage = max(0, min(100, int((1 - distance) * 100)))
+            color = "green" if percentage > 70 else "yellow"
+            title = f"[{color} bold]Preview: Note #{note.id} ({percentage}% Match)[/{color} bold]"
+            return build_note_preview(note, arch_cache=arch_cache, title=title, border_style=color)
+
+        selected_item = paginate_table(results, build_table, page_size=page_size, build_preview=build_preview)
+        
+        if selected_item:
+            note, _ = selected_item
+            show_note_action_menu(note)
+        else:
+            break # User quit the pager

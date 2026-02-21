@@ -12,8 +12,9 @@ links between a new note and a set of candidate notes from an existing knowledge
   (e.g., a tool implementing a theory, two components of the same system,
   complementary practices in the same domain).
 
-### Candidate Similarity Tiers
-Each candidate is prefixed with a tier based on cosine distance:
+### Candidate Similarity Tiers & Context
+Each candidate is prefixed with a tier based on cosine distance or temporal context:
+- **[RECENT NOTE]** — Created just before this new note. Highly likely to be part of a "stream of consciousness" or narrative flow. You MUST evaluate if they are sequentially related.
 - **[High similarity]** — Very likely related. You MUST make an explicit decision.
 - **[Moderate similarity]** — Good evidence. You MUST make an explicit decision.
 - **[Weak topical connection]** — Possible relationship. Rules below apply.
@@ -28,7 +29,7 @@ Each candidate is labelled `family:<value>`. The new note's family is in the tax
 Apply these rules in order — they are NOT suggestions, they are hard filters:
 
 1. **Family MISMATCH** (`new family ≠ candidate family`) → **SKIP** unconditionally,
-   UNLESS the candidate is marked `[PARENT CONCEPT]` OR the similarity tier is `[High similarity]`
+   UNLESS the candidate is marked `[PARENT CONCEPT]`, `[RECENT NOTE]`, OR the similarity tier is `[High similarity]`
    AND the new note's own text explicitly explains the cross-domain connection.
 
 2. **Same vocabulary, different families** → always SKIP:
@@ -44,9 +45,9 @@ Apply these rules in order — they are NOT suggestions, they are hard filters:
    AND the topic is unambiguously the same domain as the new note.
 
 ### Output rules
-- High and Moderate candidates in the same domain_family: MUST include a decision.
+- High, Moderate, and RECENT candidates in the same domain_family: MUST include a decision.
 - Every link entry must have all three fields: `target_id`, `relation_type`, `reason`.
-- Prefer RELATES for partial or contextual connections.
+- Prefer RELATES for partial, contextual, or sequential (stream of consciousness) connections.
 """
 
 LINKER_HUMAN_PROMPT = """\
@@ -57,10 +58,10 @@ LINKER_HUMAN_PROMPT = """\
 Domain: {domain}  |  Domain family: {domain_family}  |  Concept type: {concept_type}
 {parent_hint}
 
-## CANDIDATE NOTES (sorted by similarity)
+## CANDIDATE NOTES (sorted by relevance/time)
 {past_notes}
 
-Apply the Domain Family Guard. Link all High/Moderate same-family candidates.
+Apply the Domain Family Guard. Link all High/Moderate/RECENT same-family candidates.
 For Weak tier + same family: link if there is any concrete topical overlap.
 For different families + Weak: only link if the new note explicitly bridges them.
 """

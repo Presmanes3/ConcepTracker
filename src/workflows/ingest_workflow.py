@@ -47,6 +47,7 @@ def search_before_save(state: IngestState):
     raw_similar = note_repository.get_similar_notes(
         current_id=None,
         embedding=state.embedding,
+        query_text=state.content,
         limit=5
     )
     # Only near-identical concepts reach the Gatekeeper
@@ -85,19 +86,40 @@ def search_related_for_linking(state: IngestState):
     """
     Re-search to find link candidates for THE NEW NOTE only.
 
-    Returns the top-10 nearest neighbours filtered by DISTANCE_LINKING_CUTOFF.
-    Increased from 5 to 10 to ensure full clusters (3+ related notes) are visible.
-    The LinkerAgent receives tier labels (High / Moderate / Weak / Distant) and
-    excludes Distant candidates itself.
+    Returns the top-10 nearest neighbours filtered by DISTANCE_LINKING_CUTOFF,
+    plus the 3 most recently created notes to capture temporal context (stream of consciousness).
     """
     from src.utils.embeddings import DISTANCE_LINKING_CUTOFF
+    
+    # 1. Semantic + Lexical Candidates
     candidates = note_repository.get_similar_notes(
         current_id=state.note_id,
         embedding=state.embedding,
+        query_text=state.content,
         limit=10,
     )
-    filtered = [n for n in candidates if n.get("distance", 1.0) < DISTANCE_LINKING_CUTOFF]
-    return {"similar_notes": filtered}
+    filtered_semantic = [n for n in candidates if n.get("distance", 1.0) < DISTANCE_LINKING_CUTOFF]
+    
+    # 2. Temporal Candidates (Recent Notes)
+    recent_notes = note_repository.get_recent_notes(limit=3, exclude_id=state.note_id)
+    
+    # 3. Merge and deduplicate
+    seen_ids = set()
+    final_candidates = []
+    
+    # Add recent notes first (they get priority in the prompt)
+    for n in recent_notes:
+        if n["id"] not in seen_ids:
+            final_candidates.append(n)
+            seen_ids.add(n["id"])
+            
+    # Add semantic notes
+    for n in filtered_semantic:
+        if n["id"] not in seen_ids:
+            final_candidates.append(n)
+            seen_ids.add(n["id"])
+            
+    return {"similar_notes": final_candidates}
 
 def match_relations(state: IngestState):
     """LLM decide relaciones para la nueva nota."""
