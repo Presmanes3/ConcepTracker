@@ -1,8 +1,5 @@
 import typer
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.columns import Columns
 from src.cli.registry import registry
 from src.services.cost_service import cost_service
 from src.cli.views import render_stats_dashboard
@@ -27,10 +24,10 @@ def stats(
     if not cost_service.is_configured:
         with console.status("[yellow]Calculating token usage...[/yellow]"):
             results = cost_service.get_stats(days=days, hours=hours)
-        render_stats_dashboard(results, False, days, hours)
+        console.print(render_stats_dashboard(results, False, days, hours))
         return
 
     with console.status("[yellow]Calculating costs...[/yellow]"):
         results = cost_service.get_stats(days=days, hours=hours)
 
-    render_stats_dashboard(results, True, days, hours)
+    console.print(render_stats_dashboard(results, True, days, hours))

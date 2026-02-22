@@ -10,6 +10,8 @@ from .help_cmd import help_command
 from .stats import stats
 from .config import config_cmd
 from .live_transcription import live_transcription
+from .open_note import open_note
+from .list_devices import list_devices
 
 __all__ = [
     "auth",
@@ -23,5 +25,7 @@ __all__ = [
     "help_command",
     "stats",
     "config_cmd",
-    "live_transcription"
+    "live_transcription",
+    "open_note",
+    "list_devices",
 ]

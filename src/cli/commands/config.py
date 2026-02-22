@@ -32,7 +32,7 @@ def config_cmd(
     active_id = settings.active_model_id
 
     if list_all:
-        render_config_list(settings, active_id)
+        console.print(render_config_list(settings, active_id))
         return
 
     if model:
@@ -53,10 +53,10 @@ def config_cmd(
         # 3. Handle activation
         if active:
             repos.config.set_active_model(model)
-            render_model_activated(model)
+            console.print(render_model_activated(model))
         elif input_price > 0 or output_price > 0:
             console.print(f"[green]✔[/green] Settings saved.")
     else:
         # Default behavior: UX Summary if no options are provided
         pricing = settings.pricing.get(active_id)
-        render_config_summary(active_id, pricing)
+        console.print(render_config_summary(active_id, pricing))

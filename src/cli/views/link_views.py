@@ -18,6 +18,8 @@ def link_table_view(
     out_links: "List[Link]",
     in_links: "List[Link]",
     note_summaries: Optional[Dict[int, str]] = None,
+    title: str = "[bold blue]Connections[/bold blue]",
+    border_style: str = "blue",
 ) -> Panel:
     """
     Render incoming and outgoing links as a Rich Panel.
@@ -32,8 +34,8 @@ def link_table_view(
     if not out_links and not in_links:
         return Panel(
             "[dim]No links connected to this note.[/dim]",
-            title="[bold blue]Connections[/bold blue]",
-            border_style="blue",
+            title=title,
+            border_style=border_style,
             expand=True,
         )
 
@@ -46,24 +48,48 @@ def link_table_view(
     def _trunc(s: str, n: int = 60) -> str:
         return s[:n] + "…" if len(s) > n else s
 
+    max_rows = 4
+    current_rows = 0
+
     if out_links:
         link_tbl.add_row("[blue]🔗 Outgoing[/blue]", "", "", "")
-        for lnk in out_links:
+        current_rows += 1
+        for i, lnk in enumerate(out_links):
+            if current_rows >= max_rows:
+                break
+            # If we are at the last available row, and there are more links to show
+            if current_rows == max_rows - 1 and (i < len(out_links) - 1 or in_links):
+                link_tbl.add_row("  [dim]...[/dim]", f"[dim]+{len(out_links) - i} more[/dim]", "", "")
+                current_rows += 1
+                break
             summary = _trunc(note_summaries.get(lnk.target_id, ""))
             link_tbl.add_row("  [dim]↳[/dim]", lnk.relation_type, f"ID {lnk.target_id}", summary)
+            current_rows += 1
 
-    if in_links:
-        if out_links:
-            link_tbl.add_row("", "", "", "")  # spacer
-        link_tbl.add_row("[yellow]🔗 Incoming[/yellow]", "", "", "")
-        for lnk in in_links:
-            summary = _trunc(note_summaries.get(lnk.source_id, ""))
-            link_tbl.add_row("  [dim]↳[/dim]", lnk.relation_type, f"ID {lnk.source_id}", summary)
+    if in_links and current_rows < max_rows:
+        # If we only have 1 row left, we can't even show the header + 1 link.
+        # So we just show a summary row.
+        if current_rows == max_rows - 1:
+            link_tbl.add_row("[yellow]🔗 Incoming[/yellow]", f"[dim]+{len(in_links)} more[/dim]", "", "")
+            current_rows += 1
+        else:
+            link_tbl.add_row("[yellow]🔗 Incoming[/yellow]", "", "", "")
+            current_rows += 1
+            for i, lnk in enumerate(in_links):
+                if current_rows >= max_rows:
+                    break
+                if current_rows == max_rows - 1 and i < len(in_links) - 1:
+                    link_tbl.add_row("  [dim]...[/dim]", f"[dim]+{len(in_links) - i} more[/dim]", "", "")
+                    current_rows += 1
+                    break
+                summary = _trunc(note_summaries.get(lnk.source_id, ""))
+                link_tbl.add_row("  [dim]↳[/dim]", lnk.relation_type, f"ID {lnk.source_id}", summary)
+                current_rows += 1
 
     return Panel(
         link_tbl,
-        title="[bold blue]Connections[/bold blue]",
-        border_style="blue",
+        title=title,
+        border_style=border_style,
         expand=True,
     )
 

@@ -26,4 +26,4 @@ def trace(concept: str, threshold: float = 0.85):
     # Load all notes sorted by date
     notes = repos.notes.get_notes_by_ids(note_ids)
     
-    render_trace_timeline(concept, notes, note_ids, repos.links.get_links_by_source)
+    console.print(render_trace_timeline(concept, notes, note_ids, repos.links.get_links_by_source))

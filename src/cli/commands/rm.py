@@ -40,7 +40,7 @@ def rm(
             console.print("[yellow]No notes found matching your criteria.[/yellow]")
             return
         
-        render_delete_selection_table(notes)
+        console.print(render_delete_selection_table(notes))
         
         note_id_str = Prompt.ask("\n[bold red]Enter the ID to delete[/bold red]", default="")
         if not note_id_str:
@@ -58,7 +58,7 @@ def rm(
         console.print(f"[red]Note with ID {note_id} not found.[/red]")
         return
 
-    render_delete_confirmation(note)
+    console.print(render_delete_confirmation(note))
 
     if Confirm.ask("Are you sure?", default=False):
         if repos.notes.delete_note(note_id):

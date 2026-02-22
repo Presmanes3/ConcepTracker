@@ -36,9 +36,9 @@ def add(content: str, tag: str = None):
             target = repos.notes.get_note_by_id(target_id)
             return target.summary if target else None
             
-        render_ingest_result(
-            result, 
-            cost_str, 
+        console.print(render_ingest_result(
+            result,
+            cost_str,
             get_note_summary_func=get_note_summary,
             count_archipelago_func=repos.archipelagos.count_notes_in_archipelago
-        )
+        ))

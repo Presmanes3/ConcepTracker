@@ -1,26 +1,10 @@
 """
-src/cli/ui.py — Backward-compatibility shim.
+src/cli/ui.py — REMOVED.
 
-All rendering logic has moved to src/cli/views/*.
-This file re-exports the old API so existing callers (ls.py, find.py, note_menu.py)
-continue to work without changes during the migration.
-
-TODO: Remove this file once all callers are updated to import from src.cli.views directly.
+All rendering logic lives in src/cli/views/ and src/cli/screens/.
+This file is intentionally empty. Import directly from those packages.
 """
-from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
 
-from src.cli.views.arch_views import archipelago_badge, prefetch_arch_cache  # noqa: F401
-from src.cli.views.note_views import note_card_view, note_header_view, note_detail_view  # noqa: F401
-from src.cli.views.link_views import link_table_view  # noqa: F401
-
-if TYPE_CHECKING:
-    from rich.panel import Panel
-    from rich.console import Group
-
-
-# ── Legacy API wrappers ────────────────────────────────────────────────────────
-# These maintain the old function signatures so callers don't need to change yet.
 
 
 def get_archipelago_badge(

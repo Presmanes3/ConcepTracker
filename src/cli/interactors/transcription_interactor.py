@@ -150,7 +150,7 @@ class TranscriptionInteractor:
             else:
                 console.print("[yellow]No audio input device configured.[/yellow]")
 
-            from src.cli.interactors.device_selector import select_audio_device_ui
+            from src.cli.screens.device_selector import select_audio_device_ui
             devices = audio_svc.get_available_input_devices()
             selected = select_audio_device_ui(devices, device_id)
             if selected is None:
