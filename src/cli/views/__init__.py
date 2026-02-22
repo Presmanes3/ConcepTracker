@@ -6,7 +6,17 @@ Convenience re-exports for the views package.
 from src.cli.views.arch_views import archipelago_badge, prefetch_arch_cache
 from src.cli.views.note_views import note_card_view, note_list_table_view, note_find_table_view
 from src.cli.views.link_views import link_table_view, links_inline_text
-from src.cli.views.transcription_views import LiveTranscriptionView
+from src.cli.views.transcription_views import (
+    render_recording_status,
+    render_transcription_panel,
+    render_navigation_panel,
+)
+from src.cli.views.pause_transcription_views import (
+    render_pause_status,
+    render_pause_menu,
+    render_pause_content_text,
+    render_pause_content_editor,
+)
 from src.cli.views.ingest_views import render_ingest_result
 from src.cli.views.rm_views import render_delete_selection_table, render_delete_confirmation
 from src.cli.views.config_views import render_config_list, render_config_summary, render_model_activated
@@ -23,7 +33,13 @@ __all__ = [
     "note_find_table_view",
     "link_table_view",
     "links_inline_text",
-    "LiveTranscriptionView",
+    "render_recording_status",
+    "render_transcription_panel",
+    "render_navigation_panel",
+    "render_pause_status",
+    "render_pause_menu",
+    "render_pause_content_text",
+    "render_pause_content_editor",
     "render_ingest_result",
     "render_delete_selection_table",
     "render_delete_confirmation",

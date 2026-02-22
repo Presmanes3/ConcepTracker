@@ -133,7 +133,7 @@ class TranscriptionInteractor:
                 # Loop back to menu — don't restart recording
                 continue
             elif action == "modify":
-                self._do_modify()
+                # editing was applied inside the pause screen
                 continue
             else:
                 return
@@ -150,9 +150,12 @@ class TranscriptionInteractor:
             else:
                 console.print("[yellow]No audio input device configured.[/yellow]")
 
-            from src.cli.screens.device_selector import select_audio_device_ui
+            from src.cli.screens.device_list_screen import run_device_list_ui
             devices = audio_svc.get_available_input_devices()
-            selected = select_audio_device_ui(devices, device_id)
+            if not devices:
+                console.print("[red]No audio input devices found on this system.[/red]")
+                return None
+            selected = run_device_list_ui(devices, device_id)
             if selected is None:
                 console.print("[red]Cancelled: no audio device selected.[/red]")
                 return None
@@ -164,39 +167,21 @@ class TranscriptionInteractor:
         return device_id
 
     def _pause_menu(self) -> str:
-        console.clear()
+        from src.cli.screens.pause_transcription_screen import run_pause_transcription_ui
+
         full_text = " ".join(self._full_transcript).strip()
         mins, secs = divmod(int(self._total_duration), 60)
-        words = len(full_text.split())
 
-        info_text = Text.from_markup(
-            f"[bold yellow]⏸ PAUSED[/bold yellow] | "
-            f"[cyan]Time:[/cyan] {mins:02d}:{secs:02d} | "
-            f"[cyan]Words:[/cyan] {words} | "
-            f"[cyan]Tokens (est):[/cyan] ~{int(words * 1.3)}"
+        screen = run_pause_transcription_ui(
+            full_text=full_text,
+            time_str=f"{mins:02d}:{secs:02d}",
         )
-        console.print(Panel(info_text, border_style="yellow", title="[bold]Status[/bold]"))
-        console.print(Panel(full_text, border_style="green", title="[bold]Live Transcription (Paused)[/bold]"))
-        console.print(Panel("[bold cyan]Choose an action:[/bold cyan]", style="blue", width=40))
 
-        try:
-            return questionary.select(
-                " ",
-                choices=[
-                    questionary.Choice("  ✨ Enhance with AI", "enhance"),
-                    questionary.Choice("  💾 Save Transcription", "save"),
-                    questionary.Choice("  ✏️  Edit Text", "modify"),
-                    questionary.Choice("  ▶️  Resume Recording", "continue"),
-                    questionary.Choice("  🔄 New Session", "restart"),
-                    questionary.Choice("  ❌ Discard", "discard"),
-                ],
-                style=_QUESTIONARY_STYLE,
-                qmark="",
-                pointer="●",
-                instruction=" ",
-            ).ask() or "discard"
-        except KeyboardInterrupt:
-            return "discard"
+        # Apply any inline edits the user made inside the screen
+        if screen.edited_text is not None:
+            self._full_transcript = [screen.edited_text]
+
+        return screen.result
 
     def _do_save(self) -> None:
         from shared.schemas.models.transcription import Transcription
@@ -261,17 +246,3 @@ class TranscriptionInteractor:
             console.print("[yellow]Original version kept.[/yellow]")
         time.sleep(1)
 
-    def _do_modify(self) -> None:
-        full_text = " ".join(self._full_transcript).strip()
-        console.clear()
-        console.print("[green]╭─ Live Transcription (Modifying) [dim](Finish: Alt+Enter / Esc+Enter)[/dim] ─────╮[/green]")
-        try:
-            edited_text = questionary.text(
-                "", default=full_text, multiline=True, qmark="", instruction=""
-            ).ask()
-        except KeyboardInterrupt:
-            edited_text = None
-        console.print("[green]╰─────────────────────────────────────────────────────────────────────────────╯[/green]")
-
-        if edited_text is not None:
-            self._full_transcript = [edited_text]

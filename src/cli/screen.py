@@ -57,6 +57,7 @@ SCREEN_EXIT = "exit"
 # Type alias for screen signals
 ScreenSignal = Union[
     None,                                    # no change
+    bool,                                    # True = refresh, False = no-op
     str,                                     # SCREEN_EXIT = "exit"
     "AppScreen",                             # transition to another screen
     Tuple[str, Callable],                    # ("suspend", fn)
@@ -105,6 +106,13 @@ class AppScreen(ABC):
         """
 
 
+def _dbg(msg: str) -> None:
+    """Append a debug line to /tmp/ct_screen_debug.log."""
+    import datetime
+    with open("ct_screen_debug.log", "a", encoding="utf-8") as f:
+        f.write(f"{datetime.datetime.now().isoformat()} {msg}\n")
+
+
 def run_screen(screen: AppScreen) -> None:
     """
     Run an AppScreen as a Live block.
@@ -120,14 +128,20 @@ def run_screen(screen: AppScreen) -> None:
       - Handles all ScreenSignals (exit, transition, suspend)
       - Detects terminal resize and refreshes automatically
     """
+    _dbg(f"run_screen called: class={screen.__class__.__name__} alternate_screen={screen.alternate_screen}")
+    _dbg(f"  console.is_terminal={console.is_terminal}  console.size={console.size}")
+
     screen._layout = screen.build_layout()
     screen.refresh_zones()
 
+    _dbg(f"  opening Live(screen={screen.alternate_screen}) ...")
     with Live(
         screen._layout,
+        console=console,
         auto_refresh=False,
         screen=screen.alternate_screen,
     ) as live:
+        _dbg(f"  Live started  is_alt={getattr(live, '_alt_screen', '?')}")
         last_size = console.size
         while True:
             # ── Input wait (inner loop) ───────────────────────────────────
@@ -178,9 +192,10 @@ def _process_signal(signal: ScreenSignal, screen: AppScreen, live: Live) -> None
         _process_signal(result, screen, live)
         return
 
-    # Default: something changed — refresh the layout.
-    # Call live.update(screen._layout) in case the screen rebuilt its layout tree
-    # (e.g. expand/collapse creates a new Layout object).
+    # Default: something changed — refresh zones in-place, then repaint.
+    # Layout zones are mutated in-place by refresh_zones(), so live.update()
+    # is never needed — calling it replaces the root renderable and forces
+    # a full terminal repaint on every keypress (the blink/scroll bug).
+    _dbg(f"  _process_signal: refresh — signal={signal!r} screen={screen.__class__.__name__}")
     screen.refresh_zones()
-    live.update(screen._layout)
     live.refresh()

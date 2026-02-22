@@ -1,119 +1,73 @@
 """
-LiveTranscriptionView — Rich TUI component for real-time transcription display.
+src/cli/views/transcription_views.py
 
-Extracted from src/cli/commands/live_transcription.py.
-Pure presentation: receives data, renders panels. No async I/O, no DB calls.
+Pure render functions for the live recording screen.
+No lifecycle, no Live, no console — data in, Rich Panel out.
+
+Exported:
+  render_recording_status()    → Panel
+  render_transcription_panel() → Panel
+  render_navigation_panel()    → Panel  (static, build once per session)
 """
 from __future__ import annotations
 
-import time
 from typing import List
 
 from rich.align import Align
-from rich.console import Console, Group
-from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
 
-class LiveTranscriptionView:
-    """
-    Manages the Live TUI display during an active transcription session.
+def render_recording_status(
+    rec_icon: str,
+    rec_style: str,
+    time_str: str,
+    words: int,
+    tokens: int,
+) -> Panel:
+    """Status bar: blinking dot, elapsed time, word count, token estimate."""
+    info_text = Text.from_markup(
+        f"[{rec_style}]{rec_icon}[/{rec_style}] [bold red]RECORDING[/bold red] | "
+        f"[cyan]Time:[/cyan] {time_str} | "
+        f"[cyan]Words:[/cyan] {words} | "
+        f"[cyan]Tokens (est):[/cyan] ~{tokens}"
+    )
+    return Panel(info_text, border_style="blue", title="[bold]Recording[/bold]")
 
-    Usage::
 
-        view = LiveTranscriptionView(console)
-        view.start()
-        view.update(transcript_words=["hello", "world"], partial="how are")
-        view.stop()
-    """
+def render_transcription_panel(
+    full_transcript: List[str],
+    current_partial: str = "",
+) -> Panel:
+    """Scrolling transcript panel — shows last 100 words + live partial."""
+    full_text = " ".join(full_transcript)
+    display_words = full_text.split()[-100:]
+    display_text  = " ".join(display_words)
 
-    def __init__(self, console: Console, initial_duration: float = 0.0):
-        self._console = console
-        self._initial_duration = initial_duration
-        self._start_time = time.time()
-        self._full_transcript: List[str] = []
-        self._current_partial: str = ""
-        self._live = Live(
-            console=self._console,
-            refresh_per_second=10,
-            transient=False,
-        )
+    trans_text = Text()
+    if display_words and len(full_text.split()) > 100:
+        trans_text.append("… ", style="dim")
+    if display_text:
+        trans_text.append(display_text + " ", style="green")
+    if current_partial:
+        trans_text.append(current_partial, style="dim")
 
-    # ── Lifecycle ──────────────────────────────────────────────────────────
+    return Panel(
+        Align.left(trans_text, vertical="top"),
+        border_style="green",
+        title="[bold]Live Transcription[/bold]",
+    )
 
-    def start(self) -> None:
-        self._live.start()
-        self._render()
 
-    def stop(self) -> None:
-        self._live.stop()
+def render_navigation_panel() -> Panel:
+    """Static navigation hint for the recording screen (build once per session)."""
+    footer_text = Text.from_markup(
+        "[dim]Press[/dim] [bold cyan]Ctrl+C[/bold cyan] "
+        "[dim]to pause or stop recording[/dim]"
+    )
+    return Panel(
+        Align.center(footer_text, vertical="middle"),
+        border_style="dim",
+        title="[bold]Navigation[/bold]",
+    )
 
-    # ── Data interface ─────────────────────────────────────────────────────
-
-    def append_final(self, text: str) -> None:
-        self._full_transcript.append(text)
-        self._current_partial = ""
-        self._render()
-
-    def set_partial(self, text: str) -> None:
-        self._current_partial = text
-        self._render()
-
-    @property
-    def full_transcript(self) -> List[str]:
-        return list(self._full_transcript)
-
-    @property
-    def elapsed_seconds(self) -> float:
-        return self._initial_duration + (time.time() - self._start_time)
-
-    # ── Rendering ──────────────────────────────────────────────────────────
-
-    def _render(self) -> None:
-        elapsed = self.elapsed_seconds
-        mins, secs = divmod(int(elapsed), 60)
-        time_str = f"{mins:02d}:{secs:02d}"
-
-        full_text = " ".join(self._full_transcript)
-        words = len(full_text.split()) if full_text.strip() else 0
-        tokens = int(words * 1.3)
-
-        # Blinking recording indicator
-        is_blink_on = int(time.time() * 2) % 2 == 0
-        rec_icon = "●" if is_blink_on else "○"
-        rec_style = "bold red" if is_blink_on else "dim red"
-
-        info_text = Text.from_markup(
-            f"[{rec_style}]{rec_icon}[/{rec_style}] [bold red]RECORDING[/bold red] | "
-            f"[cyan]Time:[/cyan] {time_str} | "
-            f"[cyan]Words:[/cyan] {words} | "
-            f"[cyan]Tokens (est):[/cyan] ~{tokens}"
-        )
-        info_panel = Panel(info_text, border_style="blue", title="[bold]Status[/bold]")
-
-        # Show last ~100 words to prevent vertical growth
-        display_words = full_text.split()[-100:]
-        display_text = " ".join(display_words)
-
-        trans_text = Text()
-        if display_words and len(full_text.split()) > 100:
-            trans_text.append("… ", style="dim")
-        if display_text:
-            trans_text.append(display_text + " ", style="green")
-        if self._current_partial:
-            trans_text.append(self._current_partial, style="dim")
-
-        trans_panel = Panel(
-            Align.left(trans_text, vertical="top"),
-            border_style="green",
-            title="[bold]Live Transcription (Latest)[/bold]",
-            height=10,
-        )
-
-        footer_text = Text.from_markup(
-            "[dim]Press[/dim] [bold cyan]Ctrl+C[/bold cyan] [dim]to pause or stop recording[/dim]"
-        )
-        footer_panel = Panel(Align.center(footer_text), border_style="dim")
-
-        self._live.update(Group(info_panel, trans_panel, footer_panel))

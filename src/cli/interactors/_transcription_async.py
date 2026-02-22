@@ -17,7 +17,7 @@ from concurrent.futures import InvalidStateError as ConcurrentInvalidStateError
 
 from rich.console import Console
 
-console = Console()
+from src.cli.screen import console
 
 # ── Optional dependency guard ──────────────────────────────────────────────────
 
@@ -120,7 +120,7 @@ async def start_transcription(device_id: int, state: dict) -> None:
 
     The async loop's exception handler is patched to suppress AWS SDK noise.
     """
-    from src.cli.views.transcription_views import LiveTranscriptionView
+    from src.cli.screens.recording_screen import RecordingScreen
 
     loop = asyncio.get_running_loop()
 
@@ -142,16 +142,16 @@ async def start_transcription(device_id: int, state: dict) -> None:
         media_encoding="pcm",
     )
 
-    view = LiveTranscriptionView(
+    screen = RecordingScreen(
         console,
         initial_duration=state.get("duration", 0.0),
     )
-    # Pre-populate view with any existing transcript from a previous segment
+    # Pre-populate with any existing transcript from a previous segment
     for segment in state.get("transcript", []):
-        view._full_transcript.append(segment)
+        screen._full_transcript.append(segment)
 
-    view.start()
-    handler = _StreamHandler(stream.output_stream, view)
+    screen.start()
+    handler = _StreamHandler(stream.output_stream, screen)
 
     try:
         await asyncio.gather(_write_chunks(stream, device_id), handler.handle_events())
@@ -161,6 +161,6 @@ async def start_transcription(device_id: int, state: dict) -> None:
         if "InvalidStateError" not in str(exc):
             console.print(f"[red]Error during transcription: {exc}[/red]")
     finally:
-        view.stop()
-        state["transcript"] = view.full_transcript
-        state["duration"] = view.elapsed_seconds
+        screen.stop()
+        state["transcript"] = screen.full_transcript
+        state["duration"] = screen.elapsed_seconds
