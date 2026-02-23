@@ -11,6 +11,7 @@ Exports:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import time
 from concurrent.futures import InvalidStateError as ConcurrentInvalidStateError
@@ -109,26 +110,15 @@ async def _write_chunks(stream, device_id: int):
 async def start_transcription(device_id: int, state: dict) -> None:
     """
     Run a single transcription session, updating `state` in place.
-
-    state keys read:
-        "transcript"  List[str]   — existing transcript (for resume)
-        "duration"    float       — already-elapsed seconds (for resume)
-
-    state keys written:
-        "transcript"  List[str]   — accumulated final transcript words
-        "duration"    float       — total session seconds
-
-    The async loop's exception handler is patched to suppress AWS SDK noise.
     """
     from src.cli.screens.recording_screen import RecordingScreen
+    from src.cli.screen import TextualBridgeApp
 
     loop = asyncio.get_running_loop()
 
     def _handle_exception(loop, context):
         msg = context.get("exception", context["message"])
-        if "InvalidStateError" in str(msg) or "CANCELLED" in str(msg):
-            return
-        if "future" in context and "InvalidStateError" in str(context.get("future", "")):
+        if "InvalidStateError" in str(msg) or "CANCELLED" in str(msg) or "exit" in str(msg):
             return
         loop.default_exception_handler(context)
 
@@ -148,19 +138,34 @@ async def start_transcription(device_id: int, state: dict) -> None:
     )
     # Pre-populate with any existing transcript from a previous segment
     for segment in state.get("transcript", []):
-        screen._full_transcript.append(segment)
+        screen.full_transcript = [*screen.full_transcript, segment]
 
-    screen.start()
+    app = TextualBridgeApp(screen)
     handler = _StreamHandler(stream.output_stream, screen)
 
     try:
-        await asyncio.gather(_write_chunks(stream, device_id), handler.handle_events())
-    except asyncio.CancelledError:
+        # Run Textual app and Audio tasks in parallel
+        # We use wait with FIRST_COMPLETED so that when the screen exits, we stop the loop.
+        tasks = [
+            asyncio.create_task(app.run_async()),
+            asyncio.create_task(_write_chunks(stream, device_id)),
+            asyncio.create_task(handler.handle_events()),
+        ]
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        
+        # Cancel any pending tasks (audio chunks/streaming)
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     except Exception as exc:
-        if "InvalidStateError" not in str(exc):
+        if "InvalidStateError" not in str(exc) and "exit" not in str(exc):
             console.print(f"[red]Error during transcription: {exc}[/red]")
     finally:
-        screen.stop()
+        # Ensure we always update state
         state["transcript"] = screen.full_transcript
-        state["duration"] = screen.elapsed_seconds
+        state["duration"]   = screen.elapsed_seconds
+        state["action"]     = getattr(screen, "result", "pause")

@@ -7,15 +7,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.columns import Columns
 from src.cli.screen import AppScreen, SCREEN_EXIT, run_screen
-from src.cli._input import (
-    _getch_with_timeout,
-    _is_up,
-    _is_down,
-    _is_select,
-    _is_quit,
-    _is_prev_page,
-    _is_next_page,
-)
+# No longer using _input.py for key detection, using Textual's key names.
 
 console = Console()
 
@@ -143,10 +135,14 @@ class TagSelectorUI:
         
         columns = Columns(panels, expand=True, equal=True)
         
-        hint = Text(
-            "\n↑↓ Navigate   ←→ Switch Category   Space / Enter  Toggle   q  Confirm   Esc  Cancel",
-            style="dim", justify="center",
-        )
+        from src.cli.components.footer import render_footer
+        hint = render_footer([
+            ("▲/▼", "Navigate", "yellow"),
+            ("◀/▶", "Switch Category", "cyan"),
+            ("Space/Enter", "Toggle", "magenta"),
+            ("Ctrl+C", "Confirm", "green"),
+            ("Esc", "Cancel", "dim"),
+        ], border=False)
         
         items = [columns, self._preview(), hint]
             
@@ -155,17 +151,17 @@ class TagSelectorUI:
 
     # -- Key handling ---------------------------------------------------------
 
-    def handle_key(self, kind: str, key: bytes) -> Optional[str]:
+    def handle_key(self, key: str) -> Optional[str]:
         """Returns "done" when the user confirms, otherwise None."""
         if self.input_mode:
-            return self._handle_input(kind, key)
-        return self._handle_nav(kind, key)
+            return self._handle_input(key)
+        return self._handle_nav(key)
 
-    def _handle_input(self, kind, key):
-        if kind == "char" and key in (b"\x03", b"\x1b"):  # Ctrl+C, Esc
+    def _handle_input(self, key: str):
+        if key in ("ctrl+c", "escape"):
             self.input_mode = False
             self.input_text = ""
-        elif _is_select(kind, key):
+        elif key == "enter":
             text = self.input_text.strip()
             if text:
                 self.panels[0].tags.insert(-1, {
@@ -174,44 +170,39 @@ class TagSelectorUI:
                 self.selected.add(text)
             self.input_mode = False
             self.input_text = ""
-        elif kind == "char":
-            if key in (b"\x08", b"\x7f"):  # Backspace
-                self.input_text = self.input_text[:-1]
-            else:
-                try:
-                    ch = key.decode("utf-8")
-                    if ch.isprintable() and ch not in ("\r", "\n"):
-                        self.input_text += ch
-                except UnicodeDecodeError:
-                    pass
+        elif key == "backspace":
+            self.input_text = self.input_text[:-1]
+        elif len(key) == 1:
+            if key.isprintable() and key not in ("\r", "\n"):
+                self.input_text += key
         return None
 
-    def _handle_nav(self, kind, key):
+    def _handle_nav(self, key: str):
         panel = self.panels[self.panel_focus]
         n     = len(panel.tags)
         is_ex = panel.expanded
 
-        if _is_up(kind, key):
+        if key in ("up", "k"):
             if self.tag_focus > -1:
                 self.tag_focus -= 1
 
-        elif _is_down(kind, key):
+        elif key in ("down", "j"):
             if is_ex and self.tag_focus < n - 1:
                 self.tag_focus += 1
 
-        elif _is_prev_page(kind, key):
+        elif key in ("left", "p"):
             if self.panel_focus > 0:
                 self.panel_focus -= 1
                 prev = self.panels[self.panel_focus]
                 self.tag_focus = min(self.tag_focus, len(prev.tags) - 1) if prev.expanded else -1
 
-        elif _is_next_page(kind, key):
+        elif key in ("right", "n"):
             if self.panel_focus < len(self.panels) - 1:
                 self.panel_focus += 1
                 next_panel = self.panels[self.panel_focus]
                 self.tag_focus = min(self.tag_focus, len(next_panel.tags) - 1) if next_panel.expanded else -1
 
-        elif kind == "char" and key == b" ":
+        elif key == "space":
             if self.tag_focus == -1:
                 panel.expanded = not panel.expanded
             else:
@@ -223,7 +214,7 @@ class TagSelectorUI:
                     t = item["name"]
                     (self.selected.discard if t in self.selected else self.selected.add)(t)
 
-        elif _is_select(kind, key):
+        elif key == "enter":
             item = panel.tags[self.tag_focus] if self.tag_focus > -1 else None
             if item and item.get("is_action"):
                 self.input_mode = True
@@ -233,7 +224,7 @@ class TagSelectorUI:
                     self.on_done(list(self.selected))
                 return "done"
 
-        elif _is_quit(kind, key):
+        elif key == "escape":
             if self.on_done:
                 self.on_done(list(self.selected))
             return "done"
@@ -285,28 +276,75 @@ def build_tag_selector_ui(
 
     return TagSelectorUI(panels, set(current_tags), on_done=on_done)
 
+from textual.reactive import reactive
+from textual.app import ComposeResult
+from textual.widgets import Static
+
 class _TagSelectorScreen(AppScreen):
     """AppScreen wrapper for TagSelectorUI standalone presentation."""
+    
+    # Reactive state
+    panel_focus: reactive[int] = reactive(0)
+    tag_focus: reactive[int] = reactive(0)
+    input_mode: reactive[bool] = reactive(False)
+    selected_tags: reactive[set] = reactive(set())
 
     def __init__(self, ui: "TagSelectorUI"):
+        super().__init__()
         self.ui = ui
-        self._running = True
+        # Wire initial state from UI object
+        self.panel_focus = ui.panel_focus
+        self.tag_focus   = ui.tag_focus
+        self.input_mode  = ui.input_mode
+        self.selected_tags = ui.selected
 
-    def build_layout(self) -> Layout:
-        layout = Layout(size=20)
-        layout.split_column(
-            Layout(name="content"),
-        )
-        return layout
+    def compose(self) -> ComposeResult:
+        yield Static(id="main_content")
+
+    def watch_panel_focus(self, _) -> None:
+        self.ui.panel_focus = self.panel_focus
+        self.refresh_zones()
+
+    def watch_tag_focus(self, _) -> None:
+        self.ui.tag_focus = self.tag_focus
+        self.refresh_zones()
+
+    def watch_input_mode(self, _) -> None:
+        self.ui.input_mode = self.input_mode
+        self.refresh_zones()
+        
+    def watch_selected_tags(self, _) -> None:
+        self.ui.selected = self.selected_tags
+        self.refresh_zones()
+
+    def on_mount(self) -> None:
+        super().on_mount()
+
+    def build_layout(self) -> RenderableType:
+        return self.ui.render()
 
     def refresh_zones(self) -> None:
-        self._layout["content"].update(self.ui.render())
+        self.content = self.ui.render()
 
-    def handle_key(self, kind, key):  # type: ignore[override]
-        result = self.ui.handle_key(kind, key)
+    def handle_action(self, key: str):  # type: ignore[override]
+        # Sync reactive attributes before calling handle_key
+        # result = self.ui.handle_key(key)
+        # Instead, we should modify the reactive attributes here
+        # or have the UI return them.
+        
+        # To keep it simple and reactive:
+        # We still call the UI's handle_key because it returns "done" or logic
+        result = self.ui.handle_key(key)
+        
+        # Sync back from UI to reactive triggers
+        self.panel_focus = self.ui.panel_focus
+        self.tag_focus   = self.ui.tag_focus
+        self.input_mode  = self.ui.input_mode
+        self.selected_tags = set(self.ui.selected)
+
         if result == "done":
             return SCREEN_EXIT
-        return True  # always re-render after any key
+        return None  # Re-render is handled by watch_
 
 
 def select_tags_ui(

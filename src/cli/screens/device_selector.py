@@ -5,86 +5,71 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from src.cli.screen import AppScreen, SCREEN_EXIT, run_screen
-from src.cli._input import _getch_with_timeout, _is_up, _is_down, _is_select, _is_quit
+# No longer using _input.py for key detection, using Textual's key names.
 
 console = Console()
 
 
+from textual.reactive import reactive
+from textual.app import ComposeResult
+from textual.widgets import Static
+
 class _DeviceSelectorScreen(AppScreen):
     """AppScreen for interactive audio device selection."""
+    
+    # Reactive state
+    cursor: reactive[int] = reactive(0)
 
     def __init__(self, devices: List[Dict[str, Any]], current_device_id: Optional[int]):
+        super().__init__()
         self.devices           = devices
         self.current_device_id = current_device_id
         self.result: Optional[int] = None
-        self._running = True
 
         # Start cursor on currently-configured device
-        self.cursor = 0
+        initial_cursor = 0
         if current_device_id is not None:
             for i, d in enumerate(devices):
                 if d["id"] == current_device_id:
-                    self.cursor = i
+                    initial_cursor = i
                     break
+        self.cursor = initial_cursor
 
-    # ── helpers ──────────────────────────────────────────────────────────────
+    def compose(self) -> ComposeResult:
+        yield Static(id="device_selector_main")
 
-    def _build_group(self) -> Group:
-        table = Table(show_header=True, header_style="bold magenta", expand=True)
-        table.add_column("Sel", justify="center", width=4)
-        table.add_column("ID",  justify="right",  width=4)
-        table.add_column("Device Name", style="cyan")
-        table.add_column("Channels",    justify="right", width=10)
+    def watch_cursor(self, _) -> None:
+        if self.is_mounted:
+            try:
+                self.query_one("#device_selector_main").update(self._build_group())
+            except Exception:
+                pass
 
-        for i, device in enumerate(self.devices):
-            is_cursor = (i == self.cursor)
-            sel_text  = "[bold green]>[/bold green]" if is_cursor else " "
-            row_style = "reverse" if is_cursor else ""
+    def on_mount(self) -> None:
+        super().on_mount()
+        # Initial draw
+        if self.is_mounted:
+            try:
+                self.query_one("#device_selector_main").update(self._build_group())
+            except Exception:
+                pass
 
-            name = device["name"]
-            if device.get("default"):
-                name += " [dim](System Default)[/dim]"
-            if device["id"] == self.current_device_id:
-                name += " [bold yellow](Current)[/bold yellow]"
-
-            table.add_row(
-                sel_text,
-                str(device["id"]),
-                name,
-                str(device["channels"]),
-                style=row_style,
-            )
-
-        instructions = Text(
-            "↑/↓: Move | Enter: Select | Esc/q: Cancel",
-            style="dim italic",
-            justify="center",
-        )
-        return Group(
-            Panel(table, title="[bold]Select Audio Input Device[/bold]", border_style="blue"),
-            instructions,
-        )
-
-    # ── AppScreen interface ───────────────────────────────────────────────────
-
-    def build_layout(self) -> Layout:
-        layout = Layout()
-        layout.split_column(Layout(name="content"))
-        return layout
+    def build_layout(self) -> None:
+        return None
 
     def refresh_zones(self) -> None:
-        self._layout["content"].update(self._build_group())
+        pass
 
-    def handle_key(self, kind, key):  # type: ignore[override]
-        if _is_quit(kind, key):
+    def handle_action(self, key: str):  # type: ignore[override]
+        if key == "escape":
             return SCREEN_EXIT
-        if _is_select(kind, key):
+        if key == "enter":
             self.result = self.devices[self.cursor]["id"]
             return SCREEN_EXIT
-        if _is_up(kind, key):
+        if key in ("up", "k"):
             self.cursor = max(0, self.cursor - 1)
             return True
-        if _is_down(kind, key):
+        if key in ("down", "j"):
             self.cursor = min(len(self.devices) - 1, self.cursor + 1)
             return True
         return None

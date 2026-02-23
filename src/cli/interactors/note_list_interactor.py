@@ -35,45 +35,34 @@ class NoteListInteractor:
 
     def run(self) -> None:
         """
-        Run the note list → select → menu loop until the user quits.
-
-        Raises
-        ------
-        ValueError
-            With a Rich-markup message when the archipelago filter matches
-            nothing or the result set is empty. The caller (command layer) is
-            responsible for printing the message.
+        Run the note list. The pager handles note selection internally via on_select.
+        Raises ValueError when filter matches nothing or result set is empty.
         """
-        while True:
-            notes = self._fetch_notes()
+        notes = self._fetch_notes()
 
-            if notes is None:
-                raise ValueError(
-                    f"[yellow]No archipelago matching '{self.archipelago}' found.[/yellow]"
-                )
-
-            if not notes:
-                raise ValueError("[yellow]No notes found.[/yellow]")
-
-            arch_cache = prefetch_arch_cache(notes, repos.archipelagos)
-
-            selected = paginate_table(
-                notes,
-                build_table=lambda chunk, cursor, start, expanded: note_list_table_view(
-                    chunk, cursor, start, expanded, arch_cache, len(notes)
-                ),
-                page_size=self.page_size,
-                build_preview=lambda note: note_card_view(
-                    note,
-                    arch_badge=arch_cache.get(note.archipelago_id, "[dim]~island~[/dim]"),
-                ),
+        if notes is None:
+            raise ValueError(
+                f"[yellow]No archipelago matching '{self.archipelago}' found.[/yellow]"
             )
 
-            if selected is None:
-                break  # user quit the pager
+        if not notes:
+            raise ValueError("[yellow]No notes found.[/yellow]")
 
-            from src.cli.interactors.open_note_interactor import OpenNoteInteractor
-            OpenNoteInteractor(note_id=selected.id).run()
+        from src.cli.interactors.open_note_interactor import OpenNoteInteractor
+        arch_cache = prefetch_arch_cache(notes, repos.archipelagos)
+
+        paginate_table(
+            notes,
+            build_table=lambda chunk, cursor, start, expanded: note_list_table_view(
+                chunk, cursor, start, expanded, arch_cache, len(notes)
+            ),
+            page_size=self.page_size,
+            build_preview=lambda note: note_card_view(
+                note,
+                arch_badge=arch_cache.get(note.archipelago_id, "[dim]~island~[/dim]"),
+            ),
+            on_select=lambda note: OpenNoteInteractor(note.id).build_screen(),
+        )
 
     # ------------------------------------------------------------------
     # Private helpers

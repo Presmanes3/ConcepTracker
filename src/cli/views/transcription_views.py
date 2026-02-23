@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import List
 
-from rich.align import Align
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
@@ -39,35 +39,47 @@ def render_transcription_panel(
     full_transcript: List[str],
     current_partial: str = "",
 ) -> Panel:
-    """Scrolling transcript panel — shows last 100 words + live partial."""
-    full_text = " ".join(full_transcript)
-    display_words = full_text.split()[-100:]
-    display_text  = " ".join(display_words)
+    """Scrolling transcript panel — renders confirmed text as Markdown + dim partial."""
+    full_text = " ".join(full_transcript).strip()
 
-    trans_text = Text()
-    if display_words and len(full_text.split()) > 100:
-        trans_text.append("… ", style="dim")
-    if display_text:
-        trans_text.append(display_text + " ", style="green")
-    if current_partial:
-        trans_text.append(current_partial, style="dim")
+    if full_text and current_partial:
+        # Markdown body + trailing partial hint
+        from rich.console import Group
+        body: object = Group(
+            Markdown(full_text),
+            Text(current_partial, style="dim"),
+        )
+    elif full_text:
+        body = Markdown(full_text)
+    elif current_partial:
+        body = Text(current_partial, style="dim")
+    else:
+        body = Text("Listening…", style="dim italic")
 
     return Panel(
-        Align.left(trans_text, vertical="top"),
+        body,
         border_style="green",
         title="[bold]Live Transcription[/bold]",
     )
 
 
+def render_recording_side_panel(blink: bool = True) -> Panel:
+    """Right column: recording indicator + single shortcut hint."""
+    from rich.console import Group
+    dot = "[bold red]●[/bold red]" if blink else "[dim red]○[/dim red]"
+    lines = [
+        Text.from_markup(f"{dot} [bold red]RECORDING[/bold red]"),
+        Text(""),
+        Text.from_markup("[dim]Space to pause[/dim]"),
+    ]
+    return Panel(Group(*lines), title="[bold]Status[/bold]", border_style="blue")
+
+
 def render_navigation_panel() -> Panel:
-    """Static navigation hint for the recording screen (build once per session)."""
-    footer_text = Text.from_markup(
-        "[dim]Press[/dim] [bold cyan]Ctrl+C[/bold cyan] "
-        "[dim]to pause or stop recording[/dim]"
-    )
-    return Panel(
-        Align.center(footer_text, vertical="middle"),
-        border_style="dim",
-        title="[bold]Navigation[/bold]",
+    """Footer hint for the recording screen."""
+    from src.cli.components.footer import render_footer
+    return render_footer(
+        [("Space", "Pause", "cyan")],
+        border=True,
     )
 

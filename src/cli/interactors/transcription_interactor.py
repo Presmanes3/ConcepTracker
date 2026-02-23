@@ -112,31 +112,25 @@ class TranscriptionInteractor:
                 console.print("[yellow]No transcription captured.[/yellow]")
                 return
 
-            # ── Pause menu phase ──────────────────────────────────────────
-            action = self._pause_menu()
-            if action == "continue":
-                continue
-            elif action == "restart":
-                self._full_transcript = []
-                self._total_duration = 0.0
-                self._raw_text = None
-                self._applied_enhancements = None
-                continue
-            elif action == "save":
+            # The pause menu is now handled inside the Textual session.
+            # The recording screen only exits when the user picks Save / Discard / Enhance.
+            action = state.get("action", "discard")
+
+            if action == "save":
                 self._do_save()
                 return
-            elif action == "discard":
+
+            if action == "discard":
                 console.print("[yellow]Transcription discarded.[/yellow]")
                 return
-            elif action == "enhance":
+
+            if action == "enhance":
                 self._do_enhance()
-                # Loop back to menu — don't restart recording
-                continue
-            elif action == "modify":
-                # editing was applied inside the pause screen
-                continue
-            else:
+                self._do_save()
                 return
+
+            # Unexpected exit (e.g. terminal closed) — discard silently
+            return
 
     # ── Private helpers ────────────────────────────────────────────────────
 
@@ -165,23 +159,6 @@ class TranscriptionInteractor:
             console.print(f"[green]Audio device configured (ID: {device_id}).[/green]")
 
         return device_id
-
-    def _pause_menu(self) -> str:
-        from src.cli.screens.pause_transcription_screen import run_pause_transcription_ui
-
-        full_text = " ".join(self._full_transcript).strip()
-        mins, secs = divmod(int(self._total_duration), 60)
-
-        screen = run_pause_transcription_ui(
-            full_text=full_text,
-            time_str=f"{mins:02d}:{secs:02d}",
-        )
-
-        # Apply any inline edits the user made inside the screen
-        if screen.edited_text is not None:
-            self._full_transcript = [screen.edited_text]
-
-        return screen.result
 
     def _do_save(self) -> None:
         from shared.schemas.models.transcription import Transcription

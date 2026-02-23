@@ -17,9 +17,13 @@ dependencies = [
     "psycopg2-binary",
     "typer",
     "rich",
+    "textual",
     "questionary",
     "python-dotenv",
-    "PyYAML"
+    "PyYAML",
+    "sounddevice",
+    "numpy",
+    "amazon-transcribe"
 ]
 
 [project.optional-dependencies]

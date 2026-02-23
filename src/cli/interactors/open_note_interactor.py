@@ -39,10 +39,17 @@ class OpenNoteInteractor:
 
     def run(self) -> None:
         """Open the note screen. Blocks until the user quits."""
+        screen = self.build_screen()
+        if screen is None:
+            return
+        run_screen(screen)
+
+    def build_screen(self):
+        """Fetch note data and return a ready-to-push OpenNoteScreen (no run_screen)."""
         self._note = self._note_repo.get_note_by_id(self._note_id)
         if not self._note:
             console.print(f"[red]Note {self._note_id} not found.[/red]")
-            return
+            return None
 
         # Fetch connections
         out_links = self._link_repo.get_links_by_source(self._note_id)
@@ -59,7 +66,6 @@ class OpenNoteInteractor:
             if source_note:
                 note_summaries[link.source_id] = source_note.summary
 
-        # Build renderables (passed once; expand/collapse is handled inside the screen)
         badge = self._resolve_badge()
         actions_renderable = open_note_actions_panel()
 
@@ -67,7 +73,7 @@ class OpenNoteInteractor:
             ("🔙 Back", lambda: SCREEN_EXIT),
         ]
 
-        screen = OpenNoteScreen(
+        return OpenNoteScreen(
             note=self._note,
             arch_badge=badge,
             out_links=out_links,
@@ -76,8 +82,6 @@ class OpenNoteInteractor:
             actions_renderable=actions_renderable,
             menu_items=menu_items,
         )
-
-        run_screen(screen)
 
     def _resolve_badge(self) -> str:
         if not self._note.archipelago_id:

@@ -37,12 +37,13 @@ def open_note_top_panel(note: "Note", arch_badge: str) -> Panel:
 def open_note_actions_panel() -> Panel:
     """
     Bottom panel for the open_note screen.
-    Shows the actions the user can perform.
+    Summarizes navigation controls.
     """
-    from rich.text import Text
-    actions_text = Text(
-        "↑/↓: Navigate Menu | Enter: Select | Space: Expand/Collapse | Esc: Quit",
-        style="bold cyan",
-        justify="center"
-    )
-    return Panel(actions_text, border_style="cyan")
+    from src.cli.components.footer import render_footer
+    actions = [
+        ("▲/▼", "Navigate", "yellow"),
+        ("Space", "Expand/Select", "magenta"),
+        ("Enter", "Open", "green"),
+        ("Ctrl+C", "Back", "dim"),
+    ]
+    return render_footer(actions, border=True, border_style="dim cyan")

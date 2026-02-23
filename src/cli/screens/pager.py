@@ -25,16 +25,8 @@ from rich.rule import Rule
 from rich.text import Text
 
 from src.cli.screen import AppScreen, SCREEN_EXIT, run_screen
-from src.cli._input import (
-    _getch_with_timeout,
-    _is_expand,
-    _is_next_page,
-    _is_prev_page,
-    _is_up,
-    _is_down,
-    _is_select,
-    _is_quit,
-)
+# No longer using _input.py for key detection, using Textual's key names.
+from src.cli.components.footer import render_footer
 
 console = Console()
 
@@ -43,23 +35,23 @@ T = TypeVar("T")
 
 # ── Navigation footer ─────────────────────────────────────────────────────────
 
-def _footer(page: int, total: int) -> Text:
-    t = Text(justify="center")
-    t.append(f"  Page {page + 1} / {total}  ", style="bold white")
-    t.append("▲/▼ select  ", style="yellow")
-    t.append("◀/▶ page  ", style="cyan")
-    t.append("[Space] expand  ", style="magenta")
-    t.append("[Enter] open  ", style="green")
-    t.append("[q] quit", style="dim")
-    return t
+def _footer(page: int, total: int) -> Any:
+    actions = [
+        ("▲/▼", "[yellow]select[/yellow]", "yellow"),
+        ("◀/▶", "[cyan]page[/cyan]", "cyan"),
+        ("Space", "expand", "magenta"),
+        ("Enter", "open", "green"),
+        ("Ctrl+C", "quit", "dim"),
+    ]
+    return render_footer(actions, (page, total), border=False)
 
 
 class _PagerLayout:
-    """A simple mutable layout that yields its non-None zones."""
+    """A simple mutable layout that yields its non-empty zones."""
     def __init__(self):
-        self.top = None
-        self.middle = None
-        self.bottom = None
+        self.top = ""
+        self.middle = ""
+        self.bottom = ""
 
     def __rich_console__(self, console, options):
         if self.top:
@@ -72,22 +64,61 @@ class _PagerLayout:
 
 # ── Table pager ───────────────────────────────────────────────────────────────
 
+from textual.reactive import reactive
+from textual.app import ComposeResult
+from textual.widgets import Static
+
 class _TablePagerScreen(AppScreen):
     """AppScreen backing paginate_table(). Internal — use paginate_table()."""
 
     alternate_screen = True
+    
+    # Reactive state: when these change, the relevant UI parts will update
+    global_cursor: reactive[int] = reactive(0)
+    expanded_states: reactive[set] = reactive(set)
 
-    def __init__(self, all_rows, build_table_fn, page_size, header, build_preview):
+    def __init__(self, all_rows, build_table_fn, page_size, header, build_preview, on_select=None):
+        super().__init__()
         self.all_rows      = all_rows
         self.build_table_fn = build_table_fn
         self.user_page_size = page_size
         self.header        = header
         self.build_preview = build_preview
+        self.on_select     = on_select  # Callable[[item], AppScreen|None]
         self.result        = None
-        self.global_cursor = 0
-        self.expanded_states: set = set()
-        self._running = True
         self._dyn_page_size = page_size  # updated each refresh
+        self._layout       = _PagerLayout()  # Initialize BEFORE refresh_zones() is called in on_mount
+
+    def compose(self) -> ComposeResult:
+        """Compose layout with individual reactive widgets."""
+        yield Static(id="top_panel")
+        yield Static(id="middle_panel")
+        yield Static(id="bottom_panel")
+
+    def watch_global_cursor(self, _) -> None:
+        if self.is_mounted:
+            self.refresh_zones()
+            self._update_ui_parts()
+
+    def watch_expanded_states(self, _) -> None:
+        if self.is_mounted:
+            self.refresh_zones()
+            self._update_ui_parts()
+
+    def on_mount(self) -> None:
+        """Called when the screen is active."""
+        super().on_mount()
+        # Ensure initial display
+        self._update_ui_parts()
+
+    def _update_ui_parts(self) -> None:
+        """Only update the pieces that change."""
+        try:
+            self.query_one("#top_panel", Static).update(self._layout.top)
+            self.query_one("#middle_panel", Static).update(self._layout.middle)
+            self.query_one("#bottom_panel", Static).update(self._layout.bottom)
+        except Exception:
+            pass
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -150,23 +181,30 @@ class _TablePagerScreen(AppScreen):
         # Zone 2: Preview
         if self.build_preview and self.global_cursor in self.expanded_states:
             preview_content = self.build_preview(self.all_rows[self.global_cursor])
-            self._layout.middle = preview_content
+            self._layout.middle = preview_content if preview_content is not None else ""
         else:
-            self._layout.middle = None
+            self._layout.middle = ""
 
         # Zone 3: Footer
         self._layout.bottom = Panel(_footer(page, total_pages), border_style="dim blue")
 
-    def handle_key(self, kind, key) -> Any:
+    def handle_action(self, key: str) -> Any:
         page, total_pages, *_ = self._compute()
         dyn = self._dyn_page_size
 
-        if _is_quit(kind, key):
+        if key == "escape":
+            self.result = None
             return SCREEN_EXIT
-        if _is_select(kind, key):
-            self.result = self.all_rows[self.global_cursor]
+        if key == "enter":
+            item = self.all_rows[self.global_cursor]
+            if self.on_select:
+                # Push the note/detail screen; stay in this Textual session
+                screen = self.on_select(item)
+                if screen is not None:
+                    return screen  # process_signal will push_screen
+            self.result = item
             return SCREEN_EXIT
-        if _is_expand(kind, key) and self.build_preview:
+        if key == "space" and self.build_preview:
             idx = self.global_cursor
             if idx in self.expanded_states:
                 self.expanded_states.discard(idx)
@@ -174,10 +212,10 @@ class _TablePagerScreen(AppScreen):
                 self.expanded_states.clear()
                 self.expanded_states.add(idx)
             return True
-        if _is_down(kind, key):     return self._move_cursor(+1) or None
-        if _is_up(kind, key):        return self._move_cursor(-1) or None
-        if _is_next_page(kind, key): return self._move_cursor(+dyn) or None
-        if _is_prev_page(kind, key): return self._move_cursor(-dyn) or None
+        if key in ("down", "j"):     return self._move_cursor(+1) or None
+        if key in ("up", "k"):        return self._move_cursor(-1) or None
+        if key in ("right", "n"): return self._move_cursor(+dyn) or None
+        if key in ("left", "p"): return self._move_cursor(-dyn) or None
         return None
 
 
@@ -187,6 +225,7 @@ def paginate_table(
     page_size: int = 10,
     header: Optional[Any] = None,
     build_preview: Optional[Callable[[T], Any]] = None,
+    on_select: Optional[Callable[[T], Any]] = None,
 ) -> Optional[T]:
     """
     Paginate a list through a Rich Table with selection.
@@ -208,7 +247,7 @@ def paginate_table(
     if not all_rows:
         console.print("[yellow]No results.[/yellow]")
         return None
-    screen = _TablePagerScreen(all_rows, build_table, page_size, header, build_preview)
+    screen = _TablePagerScreen(all_rows, build_table, page_size, header, build_preview, on_select)
     run_screen(screen)
     return screen.result
 
@@ -220,16 +259,52 @@ class _PanelPagerScreen(AppScreen):
 
     alternate_screen = True
 
+    # Reactive state
+    page: reactive[int] = reactive(0)
+    cursor: reactive[int] = reactive(0)
+    expanded_states: reactive[set] = reactive(set())
+
     def __init__(self, all_items, build_panel_fn, page_size, header):
+        super().__init__()
         self.all_items     = all_items
         self.build_panel_fn = build_panel_fn
         self.page_size     = page_size
         self.header        = header
         self.result        = None
-        self.page          = 0
-        self.cursor        = 0
-        self.expanded_states: set = set()
-        self._running = True
+        self._layout       = _PagerLayout()
+
+    def compose(self) -> ComposeResult:
+        """Compose layout with individual reactive widgets."""
+        yield Static(id="top_panel")
+        yield Static(id="middle_panel")
+        yield Static(id="bottom_panel")
+
+    def watch_page(self, _) -> None:
+        if self.is_mounted:
+            self.refresh_zones()
+            self._update_all()
+
+    def watch_cursor(self, _) -> None:
+        if self.is_mounted:
+            self.refresh_zones()
+            self._update_all()
+
+    def watch_expanded_states(self, _) -> None:
+        if self.is_mounted:
+            self.refresh_zones()
+            self._update_all()
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self._update_all()
+
+    def _update_all(self) -> None:
+        try:
+            self.query_one("#top_panel", Static).update(self._layout.top)
+            self.query_one("#middle_panel", Static).update(self._layout.middle)
+            self.query_one("#bottom_panel", Static).update(self._layout.bottom)
+        except Exception:
+            pass
 
     def _total_pages(self):
         return max(1, (len(self.all_items) + self.page_size - 1) // self.page_size)
@@ -252,30 +327,34 @@ class _PanelPagerScreen(AppScreen):
             parts.append(self.header)
         for i, item in enumerate(chunk):
             global_idx = start + i
-            parts.append(self.build_panel_fn(item, global_idx, i == cursor, global_idx in self.expanded_states))
+            p = self.build_panel_fn(item, global_idx, i == cursor, global_idx in self.expanded_states)
+            if p is not None:
+                parts.append(p)
+            else:
+                parts.append(Text(f"Error rendering item {global_idx}", style="red"))
 
-        self._layout.top = Panel(Group(*parts), border_style="blue")
-        self._layout.middle = None
+        self._layout.top    = Panel(Group(*parts), border_style="blue")
+        self._layout.middle = ""
         self._layout.bottom = Panel(_footer(self.page, total_pages), border_style="dim blue")
 
-    def handle_key(self, kind, key) -> Any:
+    def handle_action(self, key: str) -> Any:
         chunk, start = self._chunk()
         total_pages  = self._total_pages()
         cursor = min(self.cursor, len(chunk) - 1)
 
-        if _is_quit(kind, key):
+        if key == "escape":
             return SCREEN_EXIT
-        if _is_select(kind, key):
+        if key == "enter":
             self.result = chunk[cursor]
             return SCREEN_EXIT
-        if _is_expand(kind, key):
+        if key == "space":
             gidx = start + cursor
             if gidx in self.expanded_states:
                 self.expanded_states.discard(gidx)
             else:
                 self.expanded_states.add(gidx)
             return True
-        if _is_down(kind, key):
+        if key in ("down", "j"):
             if cursor < len(chunk) - 1:
                 self.cursor = cursor + 1
                 return True
@@ -283,7 +362,7 @@ class _PanelPagerScreen(AppScreen):
                 self.page  += 1
                 self.cursor = 0
                 return True
-        if _is_up(kind, key):
+        if key in ("up", "k"):
             if cursor > 0:
                 self.cursor = cursor - 1
                 return True
@@ -291,12 +370,12 @@ class _PanelPagerScreen(AppScreen):
                 self.page  -= 1
                 self.cursor = self.page_size - 1
                 return True
-        if _is_next_page(kind, key) and self.page < total_pages - 1:
+        if (key in ("right", "n")) and self.page < total_pages - 1:
             self.page  += 1
             self.cursor = 0
             return True
-        if _is_prev_page(kind, key) and self.page > 0:
-            self.page  -= 1
+        if (key in ("left", "p")) and self.page > 0:
+            self.page -= 1
             self.cursor = 0
             return True
         return None

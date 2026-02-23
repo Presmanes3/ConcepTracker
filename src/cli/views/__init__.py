@@ -13,9 +13,7 @@ from src.cli.views.transcription_views import (
 )
 from src.cli.views.pause_transcription_views import (
     render_pause_status,
-    render_pause_menu,
-    render_pause_content_text,
-    render_pause_content_editor,
+    render_pause_transcript,
 )
 from src.cli.views.ingest_views import render_ingest_result
 from src.cli.views.rm_views import render_delete_selection_table, render_delete_confirmation
@@ -37,9 +35,7 @@ __all__ = [
     "render_transcription_panel",
     "render_navigation_panel",
     "render_pause_status",
-    "render_pause_menu",
-    "render_pause_content_text",
-    "render_pause_content_editor",
+    "render_pause_transcript",
     "render_ingest_result",
     "render_delete_selection_table",
     "render_delete_confirmation",

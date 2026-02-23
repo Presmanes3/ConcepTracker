@@ -1,6 +1,6 @@
 active_model_id: eu.amazon.nova-micro-v1:0
 audio:
-  input_device_id: 8
+  input_device_id: 1
 pricing:
   eu.amazon.nova-micro-v1:0:
     input: 0.035
