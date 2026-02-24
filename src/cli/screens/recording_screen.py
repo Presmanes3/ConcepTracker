@@ -51,8 +51,15 @@ class RecordingScreen(AppScreen):
     RecordingScreen {
         layout: vertical;
     }
+    #recording_zone {
+        height: auto;
+    }
+    #transcription_zone {
+        height: 1fr;
+    }
     #navigation_zone {
         height: auto;
+        dock: bottom;
     }
     """
 
@@ -70,6 +77,7 @@ class RecordingScreen(AppScreen):
         self._elapsed_timer    = None
         self._blink_timer      = None
         self._is_paused        = False       # True while pause overlay is on top
+        self._stream_dead      = False       # True when AWS stream timed out during pause
 
     # ── Compose ──────────────────────────────────────────────────────────────
 
@@ -147,14 +155,15 @@ class RecordingScreen(AppScreen):
 
     # ── AppScreen interface ───────────────────────────────────────────────────
 
-    # Override base ctrl+c binding: on the recording screen Ctrl+C = pause
     BINDINGS = [
-        Binding("ctrl+c", "pause_recording", "Pause", priority=True, show=False),
+        Binding("ctrl+c", "discard_session", "Discard", priority=True, show=False),
+        Binding("ctrl+x", "discard_session", "Discard", priority=True, show=False),
     ]
 
-    async def action_pause_recording(self) -> None:
-        """Ctrl+C → open pause menu (same as Space)."""
-        self._pause()
+    async def action_discard_session(self) -> None:
+        """Ctrl+C / Ctrl+X → discard immediately."""
+        self.result = "discard"
+        self.app.exit(result="discard")
 
     def build_layout(self) -> None:
         return None
@@ -163,9 +172,13 @@ class RecordingScreen(AppScreen):
         pass
 
     def handle_action(self, key: str) -> ScreenSignal:
-        if key in ("p", "space"):
+        if key in ("p", "space", "escape"):
             self._pause()
-            return None  # don't process as a signal — we pushed directly
+            return None
+        if key == "s":
+            self.result = "save"
+            self.app.exit(result="save")
+            return None
         return None
 
     # ── Pause flow ────────────────────────────────────────────────────────────
@@ -221,7 +234,13 @@ class RecordingScreen(AppScreen):
             self.current_partial = ""
 
         if action == "resume":
-            return  # RecordingScreen is back in focus, audio continues
+            if self._stream_dead:
+                # AWS stream timed out during pause — exit so the interactor
+                # can open a fresh stream.  Transcript is preserved in state.
+                self.result = "resume"
+                self.app.exit(result="resume")
+            else:
+                return  # stream still alive — just continue recording
 
         # save / discard / enhance → exit the Textual app
         self.result = action

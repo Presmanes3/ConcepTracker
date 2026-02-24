@@ -63,6 +63,9 @@ class _StreamHandler(TranscriptResultStreamHandler):  # type: ignore[misc]
         self._view = view
 
     async def handle_transcript_event(self, transcript_event):
+        # Discard AWS results that arrive while the pause overlay is active.
+        if getattr(self._view, "_is_paused", False):
+            return
         for result in transcript_event.transcript.results:
             for alt in result.alternatives:
                 if result.is_partial:
@@ -99,10 +102,31 @@ async def _mic_stream(device_id: int):
                 break
 
 
-async def _write_chunks(stream, device_id: int):
+async def _write_chunks(stream, device_id: int, screen) -> None:
+    """Read mic continuously.  When paused or stream is dead, drain the mic
+    buffer but do NOT send to AWS — avoids billing for silence and avoids
+    writing to a dead stream.
+    """
     async for chunk, _status in _mic_stream(device_id):
+        if getattr(screen, "_is_paused", False) or getattr(screen, "_stream_dead", False):
+            continue  # drain mic, discard
         await stream.input_stream.send_audio_event(audio_chunk=chunk)
     await stream.input_stream.end_stream()
+
+
+async def _run_handler_safe(handler, screen) -> None:
+    """Run the AWS transcript handler.  On timeout (no audio for 15 s while
+    paused) catch ``BadRequestException`` silently and mark the stream as dead
+    so the recording screen can reconnect on resume.
+    """
+    try:
+        await handler.handle_events()
+    except Exception as exc:
+        msg = str(exc)
+        if "timed out" in msg.lower() or "BadRequestException" in type(exc).__name__:
+            screen._stream_dead = True   # signal: need a new AWS session on resume
+        # All other exceptions are swallowed — the global exception handler
+        # already filters InvalidStateError/CANCELLED noise.
 
 
 # ── Public coroutine ───────────────────────────────────────────────────────────
@@ -136,6 +160,7 @@ async def start_transcription(device_id: int, state: dict) -> None:
         console,
         initial_duration=state.get("duration", 0.0),
     )
+    screen._stream_dead = False
     # Pre-populate with any existing transcript from a previous segment
     for segment in state.get("transcript", []):
         screen.full_transcript = [*screen.full_transcript, segment]
@@ -144,17 +169,17 @@ async def start_transcription(device_id: int, state: dict) -> None:
     handler = _StreamHandler(stream.output_stream, screen)
 
     try:
-        # Run Textual app and Audio tasks in parallel
-        # We use wait with FIRST_COMPLETED so that when the screen exits, we stop the loop.
-        tasks = [
-            asyncio.create_task(app.run_async()),
-            asyncio.create_task(_write_chunks(stream, device_id)),
-            asyncio.create_task(handler.handle_events()),
-        ]
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        
-        # Cancel any pending tasks (audio chunks/streaming)
-        for task in pending:
+        app_task     = asyncio.create_task(app.run_async())
+        write_task   = asyncio.create_task(_write_chunks(stream, device_id, screen))
+        handler_task = asyncio.create_task(_run_handler_safe(handler, screen))
+
+        # Wait exclusively for the Textual app to finish.
+        # If AWS kills the stream mid-pause, _run_handler_safe catches it and
+        # sets screen._stream_dead = True — the UI keeps running unchanged.
+        await app_task
+
+        # UI exited — clean up audio tasks
+        for task in (write_task, handler_task):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task

@@ -116,6 +116,11 @@ class TranscriptionInteractor:
             # The recording screen only exits when the user picks Save / Discard / Enhance.
             action = state.get("action", "discard")
 
+            if action == "resume":
+                # Stream died during pause — loop back to open a fresh AWS stream.
+                # The accumulated transcript and duration are already in `state`.
+                continue
+
             if action == "save":
                 self._do_save()
                 return

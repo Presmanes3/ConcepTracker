@@ -55,8 +55,12 @@ def render_pause_status(time_str: str, words: int, tokens: int) -> Panel:
     return Panel(info, border_style="yellow", title="[bold]Paused[/bold]")
 
 
-def render_pause_transcript(text: str) -> Panel:
-    """Transcript panel — mirrors render_transcription_panel() from recording screen.
+def render_pause_transcript(text: str, title: str = "Transcript") -> Panel:
+    """Transcript / live-preview panel.
+
+    Args:
+        text:  Content to render as Rich Markdown.
+        title: Panel title — "Transcript" (read mode) or "Preview" (edit mode).
 
     Returns a Rich Panel suitable for Static.update().
     """
@@ -64,33 +68,30 @@ def render_pause_transcript(text: str) -> Panel:
         body: object = Markdown(text)
     else:
         body = Text("No transcript yet.", style="dim italic")
-    return Panel(body, border_style="green", title="[bold]Transcript[/bold]")
+    return Panel(body, border_style="green", title=f"[bold]{title}[/bold]")
 
 
-def render_pause_footer(mode: str) -> Panel | Text:
-    """
-    Renders the footer based on the current mode ("read" or "edit").
-    
-    Uses the shared footer component for consistent styling.
+def render_pause_footer(mode: str) -> Panel:
+    """Context-sensitive footer with mnemonic keys.
+
+    READ:  Esc Resume · e Edit · s Save · Ctrl+X Discard
+    EDIT:  Ctrl+S Save edit · Esc Cancel
     """
     if mode == "edit":
         actions = [
-            ("Ctrl+S", "Save & Resume", "green"),
-            ("Esc",    "Cancel Edit",   "red"),
+            ("Ctrl+S", "Save edit",  "green"),
+            ("Esc",    "Cancel",     "yellow"),
         ]
-        status = "✏ EDIT MODE"
     else:
-        # standard read mode
         actions = [
-            ("e",      "Edit Text", "yellow"),
-            ("Esc",    "Resume Recording", "cyan"),
-            ("Ctrl+C", "Stop Session", "red"),
+            ("Esc",    "Resume",     "cyan"),
+            ("e",      "Edit",       "yellow"),
+            ("s",      "Save",       "green"),
+            ("Ctrl+X", "Discard",    "red"),
         ]
-        status = "⏸ PAUSED"
 
     return render_footer(
         actions=actions,
-        status_msg=status,
         border=True,
         border_style="dim blue",
     )

@@ -76,10 +76,15 @@ def render_recording_side_panel(blink: bool = True) -> Panel:
 
 
 def render_navigation_panel() -> Panel:
-    """Footer hint for the recording screen."""
+    """Footer for the recording screen — docked at the bottom."""
     from src.cli.components.footer import render_footer
     return render_footer(
-        [("Space", "Pause", "cyan")],
+        actions=[
+            ("Esc",    "Pause",   "cyan"),
+            ("s",      "Save",    "green"),
+            ("Ctrl+X", "Discard", "red"),
+        ],
         border=True,
+        border_style="dim blue",
     )
 
