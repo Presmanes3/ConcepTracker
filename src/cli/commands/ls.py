@@ -1,5 +1,11 @@
-﻿import typer
+﻿"""
+src/cli/commands/ls.py
+
+List command — delegates fully to NoteListInteractor.
+"""
+import typer
 from rich.console import Console
+from rich.panel import Panel
 
 from src.cli.interactors.note_list_interactor import NoteListInteractor
 from src.cli.registry import registry
@@ -27,4 +33,4 @@ def ls(
             page_size=page_size,
         ).run()
     except ValueError as exc:
-        console.print(str(exc))
+        console.print(Panel(str(exc), title="[bold]Error[/bold]", border_style="red"))

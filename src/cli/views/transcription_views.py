@@ -26,13 +26,19 @@ def render_recording_status(
     tokens: int,
 ) -> Panel:
     """Status bar: blinking dot, elapsed time, word count, token estimate."""
-    info_text = Text.from_markup(
-        f"[{rec_style}]{rec_icon}[/{rec_style}] [bold red]RECORDING[/bold red] | "
-        f"[cyan]Time:[/cyan] {time_str} | "
-        f"[cyan]Words:[/cyan] {words} | "
-        f"[cyan]Tokens (est):[/cyan] ~{tokens}"
-    )
-    return Panel(info_text, border_style="blue", title="[bold]Recording[/bold]")
+    info = Text()
+    info.append(f"{rec_icon} ",       style=rec_style)
+    info.append("RECORDING",          style="bold red")
+    info.append("  │  ",              style="dim")
+    info.append("Time: ",             style="dim cyan")
+    info.append(time_str,             style="cyan")
+    info.append("  │  ",              style="dim")
+    info.append("Words: ",            style="dim cyan")
+    info.append(str(words),           style="cyan")
+    info.append("  │  ",              style="dim")
+    info.append("Tokens (est): ",     style="dim cyan")
+    info.append(f"~{tokens}",         style="cyan")
+    return Panel(info, border_style="dim", title="[bold]Recording[/bold]")
 
 
 def render_transcription_panel(
@@ -58,24 +64,12 @@ def render_transcription_panel(
 
     return Panel(
         body,
-        border_style="green",
+        border_style="dim",
         title="[bold]Live Transcription[/bold]",
     )
 
 
-def render_recording_side_panel(blink: bool = True) -> Panel:
-    """Right column: recording indicator + single shortcut hint."""
-    from rich.console import Group
-    dot = "[bold red]●[/bold red]" if blink else "[dim red]○[/dim red]"
-    lines = [
-        Text.from_markup(f"{dot} [bold red]RECORDING[/bold red]"),
-        Text(""),
-        Text.from_markup("[dim]Space to pause[/dim]"),
-    ]
-    return Panel(Group(*lines), title="[bold]Status[/bold]", border_style="blue")
-
-
-def render_navigation_panel() -> Panel:
+def render_navigation_panel() -> "Panel | Text":
     """Footer for the recording screen — docked at the bottom."""
     from src.cli.components.footer import render_footer
     return render_footer(
@@ -85,6 +79,6 @@ def render_navigation_panel() -> Panel:
             ("Ctrl+X", "Discard", "red"),
         ],
         border=True,
-        border_style="dim blue",
+        border_style="dim",
     )
 

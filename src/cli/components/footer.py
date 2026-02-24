@@ -14,7 +14,7 @@ def render_footer(
     actions: List[Tuple[str, str, str]],  # (key_label, action_label, color)
     page_info: Optional[Tuple[int, int]] = None,  # (current, total)
     border: bool = True,
-    border_style: str = "dim cyan",
+    border_style: str = "dim",
     status_msg: Optional[str] = None,
 ) -> Union[Panel, Text]:
     """
@@ -39,14 +39,21 @@ def render_footer(
         t.append(key_styled, style=f"bold {color}")
         t.append(f" {label}", style=color)
 
-    content: Union[Text, RichGroup] = t
+    content: Union[Text, "RichGroup"] = t
     if status_msg:
         from rich.console import Group as RichGroup
         from rich.align import Align
-        ok = status_msg.startswith("✔")
-        status_line = Text(
-            status_msg, justify="center", style="bold green" if ok else "bold red"
-        )
+        # Colour semantics:
+        #   ✔  explicit success  → green
+        #   ✗ / ✘ / Error       → red
+        #   anything else       → dim (neutral state labels like PAUSED, RECORDING)
+        if status_msg.startswith(("✔",)):
+            status_style = "bold green"
+        elif status_msg.startswith(("✗", "✘")) or "error" in status_msg.lower():
+            status_style = "bold red"
+        else:
+            status_style = "dim white"
+        status_line = Text(status_msg, justify="center", style=status_style)
         content = RichGroup(t, Align.center(status_line))
 
     if border:

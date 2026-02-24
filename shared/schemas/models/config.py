@@ -9,6 +9,7 @@ class ModelPricing(BaseModel):
 class TranscriptionSettings(BaseModel):
     """Settings for the transcription service."""
     enhancement_pipeline: List[str] = Field(default_factory=list, description="List of agents to run for enhancement.")
+    auto_pause_seconds: int = Field(30, description="Automatically pause recording after this many seconds (0 = disabled).")
 
 class AppSettings(BaseModel):
     """Root configuration for non-sensitive application settings."""

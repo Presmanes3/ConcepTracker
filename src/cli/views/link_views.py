@@ -18,7 +18,7 @@ def link_table_view(
     out_links: "List[Link]",
     in_links: "List[Link]",
     note_summaries: Optional[Dict[int, str]] = None,
-    title: str = "[bold blue]Connections[/bold blue]",
+    title: str = "[bold]Connections[/bold]",
     border_style: str = "blue",
 ) -> Panel:
     """

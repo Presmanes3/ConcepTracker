@@ -3,6 +3,7 @@ Command to open a note in a dedicated TUI screen.
 """
 import typer
 from rich.console import Console
+from rich.panel import Panel
 
 from src.cli.interactors.open_note_interactor import OpenNoteInteractor
 from src.cli.registry import registry
@@ -21,4 +22,4 @@ def open_note(
     try:
         OpenNoteInteractor(note_id=note_id).run()
     except ValueError as exc:
-        console.print(str(exc))
+        console.print(Panel(str(exc), title="[bold]Error[/bold]", border_style="red"))

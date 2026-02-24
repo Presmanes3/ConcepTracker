@@ -23,6 +23,10 @@ from rich.layout import Layout
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.reactive import reactive
+from textual.widgets import Static
 
 from src.cli.screen import AppScreen, SCREEN_EXIT, run_screen
 # No longer using _input.py for key detection, using Textual's key names.
@@ -37,13 +41,13 @@ T = TypeVar("T")
 
 def _footer(page: int, total: int) -> Any:
     actions = [
-        ("▲/▼", "[yellow]select[/yellow]", "yellow"),
-        ("◀/▶", "[cyan]page[/cyan]", "cyan"),
+        ("▲/▼", "select", "yellow"),
+        ("◀/▶", "page", "cyan"),
         ("Space", "expand", "magenta"),
         ("Enter", "open", "green"),
         ("Ctrl+C", "quit", "dim"),
     ]
-    return render_footer(actions, (page, total), border=False)
+    return render_footer(actions, (page, total), border=True, border_style="dim")
 
 
 class _PagerLayout:
@@ -64,15 +68,24 @@ class _PagerLayout:
 
 # ── Table pager ───────────────────────────────────────────────────────────────
 
-from textual.reactive import reactive
-from textual.app import ComposeResult
-from textual.widgets import Static
-
 class _TablePagerScreen(AppScreen):
     """AppScreen backing paginate_table(). Internal — use paginate_table()."""
 
     alternate_screen = True
-    
+
+    DEFAULT_CSS = """
+    _TablePagerScreen {
+        layout: vertical;
+        background: transparent;
+    }
+    #body {
+        height: 1fr;
+    }
+    #top_panel    { height: auto; margin-bottom: 1; }
+    #middle_panel { height: 1fr; }
+    #bottom_panel { height: auto; dock: bottom; }
+    """
+
     # Reactive state: when these change, the relevant UI parts will update
     global_cursor: reactive[int] = reactive(0)
     expanded_states: reactive[set] = reactive(set)
@@ -91,25 +104,24 @@ class _TablePagerScreen(AppScreen):
 
     def compose(self) -> ComposeResult:
         """Compose layout with individual reactive widgets."""
-        yield Static(id="top_panel")
-        yield Static(id="middle_panel")
+        with Vertical(id="body"):
+            yield Static(id="top_panel")
+            yield Static(id="middle_panel")
         yield Static(id="bottom_panel")
 
     def watch_global_cursor(self, _) -> None:
         if self.is_mounted:
             self.refresh_zones()
-            self._update_ui_parts()
 
     def watch_expanded_states(self, _) -> None:
         if self.is_mounted:
             self.refresh_zones()
-            self._update_ui_parts()
 
     def on_mount(self) -> None:
         """Called when the screen is active."""
         super().on_mount()
         # Ensure initial display
-        self._update_ui_parts()
+        self.refresh_zones()
 
     def _update_ui_parts(self) -> None:
         """Only update the pieces that change."""
@@ -143,8 +155,7 @@ class _TablePagerScreen(AppScreen):
             return False
         self.global_cursor = new
         if self.expanded_states:
-            self.expanded_states.clear()
-            self.expanded_states.add(self.global_cursor)
+            self.expanded_states = {self.global_cursor}  # reassign to trigger watcher
         return True
 
     # ── AppScreen interface ────────────────────────────────────────────────
@@ -165,7 +176,6 @@ class _TablePagerScreen(AppScreen):
             table_content.title = None
 
         # Pad the table to always have `self.user_page_size` rows
-        # This keeps the panel height constant
         if hasattr(table_content, "add_row"):
             rows_to_add = self.user_page_size - len(chunk)
             for _ in range(rows_to_add):
@@ -176,7 +186,8 @@ class _TablePagerScreen(AppScreen):
         if self.header:
             table_content = Group(self.header, table_content)
             
-        self._layout.top = Panel(table_content, title=panel_title, border_style="blue")
+        # No border style — professional look as requested
+        self._layout.top = Panel(table_content, title=panel_title, border_style="dim")
 
         # Zone 2: Preview
         if self.build_preview and self.global_cursor in self.expanded_states:
@@ -186,7 +197,11 @@ class _TablePagerScreen(AppScreen):
             self._layout.middle = ""
 
         # Zone 3: Footer
-        self._layout.bottom = Panel(_footer(page, total_pages), border_style="dim blue")
+        # No border style — professional look as requested
+        self._layout.bottom = _footer(page, total_pages)
+
+        # Always push layout updates to widgets (called from both watchers and process_signal)
+        self._update_ui_parts()
 
     def handle_action(self, key: str) -> Any:
         page, total_pages, *_ = self._compute()
@@ -206,16 +221,18 @@ class _TablePagerScreen(AppScreen):
             return SCREEN_EXIT
         if key == "space" and self.build_preview:
             idx = self.global_cursor
-            if idx in self.expanded_states:
-                self.expanded_states.discard(idx)
+            new_states = set(self.expanded_states)
+            if idx in new_states:
+                new_states.discard(idx)
             else:
-                self.expanded_states.clear()
-                self.expanded_states.add(idx)
-            return True
-        if key in ("down", "j"):     return self._move_cursor(+1) or None
-        if key in ("up", "k"):        return self._move_cursor(-1) or None
+                new_states.clear()
+                new_states.add(idx)
+            self.expanded_states = new_states  # reassign to trigger watcher
+            return None  # watcher handles refresh
+        if key in ("down", "j"):  return self._move_cursor(+1) or None
+        if key in ("up", "k"):    return self._move_cursor(-1) or None
         if key in ("right", "n"): return self._move_cursor(+dyn) or None
-        if key in ("left", "p"): return self._move_cursor(-dyn) or None
+        if key in ("left", "p"):  return self._move_cursor(-dyn) or None
         return None
 
 
@@ -259,6 +276,19 @@ class _PanelPagerScreen(AppScreen):
 
     alternate_screen = True
 
+    DEFAULT_CSS = """
+    _PanelPagerScreen {
+        layout: vertical;
+        background: transparent;
+    }
+    #body {
+        height: 1fr;
+    }
+    #top_panel    { height: auto; margin-bottom: 1; }
+    #middle_panel { height: 1fr; }
+    #bottom_panel { height: auto; dock: bottom; }
+    """
+
     # Reactive state
     page: reactive[int] = reactive(0)
     cursor: reactive[int] = reactive(0)
@@ -275,24 +305,22 @@ class _PanelPagerScreen(AppScreen):
 
     def compose(self) -> ComposeResult:
         """Compose layout with individual reactive widgets."""
-        yield Static(id="top_panel")
-        yield Static(id="middle_panel")
+        with Vertical(id="body"):
+            yield Static(id="top_panel")
+            yield Static(id="middle_panel")
         yield Static(id="bottom_panel")
 
     def watch_page(self, _) -> None:
         if self.is_mounted:
             self.refresh_zones()
-            self._update_all()
 
     def watch_cursor(self, _) -> None:
         if self.is_mounted:
             self.refresh_zones()
-            self._update_all()
 
     def watch_expanded_states(self, _) -> None:
         if self.is_mounted:
             self.refresh_zones()
-            self._update_all()
 
     def on_mount(self) -> None:
         super().on_mount()
@@ -333,9 +361,12 @@ class _PanelPagerScreen(AppScreen):
             else:
                 parts.append(Text(f"Error rendering item {global_idx}", style="red"))
 
-        self._layout.top    = Panel(Group(*parts), border_style="blue")
+        self._layout.top    = Panel(Group(*parts), border_style="dim")
         self._layout.middle = ""
-        self._layout.bottom = Panel(_footer(self.page, total_pages), border_style="dim blue")
+        self._layout.bottom = _footer(self.page, total_pages)
+
+        # Always push layout updates to widgets
+        self._update_all()
 
     def handle_action(self, key: str) -> Any:
         chunk, start = self._chunk()
@@ -349,11 +380,13 @@ class _PanelPagerScreen(AppScreen):
             return SCREEN_EXIT
         if key == "space":
             gidx = start + cursor
-            if gidx in self.expanded_states:
-                self.expanded_states.discard(gidx)
+            new_states = set(self.expanded_states)
+            if gidx in new_states:
+                new_states.discard(gidx)
             else:
-                self.expanded_states.add(gidx)
-            return True
+                new_states.add(gidx)
+            self.expanded_states = new_states  # reassign to trigger watcher
+            return None  # watcher handles refresh
         if key in ("down", "j"):
             if cursor < len(chunk) - 1:
                 self.cursor = cursor + 1

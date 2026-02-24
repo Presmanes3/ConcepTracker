@@ -87,6 +87,6 @@ def render_device_nav_panel(status_msg: Optional[str] = None) -> Panel:
         actions,
         status_msg=status_msg,
         border=True,
-        border_style="dim white",
+        border_style="dim",
     )  # type: ignore[return-value]
 

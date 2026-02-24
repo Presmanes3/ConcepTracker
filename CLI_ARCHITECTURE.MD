@@ -16,13 +16,19 @@ Structure and responsibilities for the `src/cli` layer.
   - **Rules**: No direct SQL, no direct `print()`.
 
 - **`views/` (The Presentation)**
-  - Pure functions that return `Rich` renderables (Tables, Panels).
-  - **Rules**: Stateless and data-driven.
+  - Pure functions that return `Rich` renderables (Tables, Panels, Markdown).
+  - **Rules**: Stateless and data-driven. They don't know about Textual; they only care about how data looks.
 
-- **`screens/` (The Interaction)**
+- **`screens/` (The Orchestration)**
   - Stateful TUI components built on **Textual**.
-  - Handle keyboard input and navigation.
-  - **Rules**: Use **Views** for rendering Rich content inside Textual widgets.
+  - Responsibilities:
+    1. **Layout**: Define the `ComposeResult` (the widget tree).
+    2. **Wiring**: Map `Static` widgets to `View` functions.
+    3. **Events**: Handle keyboard input, focus, and screen transitions.
+  - **Rules**: Screens should be "thin". They delegate data fetching to Interactors and visual formatting to Views.
 
-## Workflow
-`Command` ➔ `Interactor` ➔ `Service` ➔ `Screen/View`
+## The "Static Bridge" Pattern
+Since Textual handles the TUI and Rich handles the formatting, we use `Static` widgets as bridges:
+1. `Screen` identifies a region (e.g., `#status-bar`).
+2. `Screen` calls a `View` (e.g., `render_status(data)`).
+3. `Screen` updates the widget: `self.query_one("#status-bar", Static).update(view_output)`.

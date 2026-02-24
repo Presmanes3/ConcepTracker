@@ -5,39 +5,54 @@ All screens must follow this guide to provide a consistent, professional UX.
 
 ---
 
-## Philosophy
+## Technical Vocabulary
 
-> **"Data-in, Rich renderable-out."**
-> Screens wire layout. Views produce content. Never mix them.
+To communicate effectively, we distinguish between **Textual** (the skeleton/interactivity) and **Rich** (the skin/content).
 
-- **Views** (`src/cli/views/`) return Rich `Panel`, `Text`, `Table`, `Group` — pure functions, zero side-effects.
-- **Screens** (`src/cli/screens/`) wire Textual widgets and delegate all rendering to Views.
-- The user should always know **where they are**, **what they can do**, and **what is happening**.
+### Textual (Structure & Layout)
+
+- **App**: The root engine. Manages the screen stack.
+- **Screen**: A full-screen view. Only one is active at a time.
+- **Widget**: Any UI element (Button, Input, Static).
+- **Container**: A widget that holds others (`Vertical`, `Horizontal`, `Grid`).
+- **Static**: A specialized widget used as a bridge to display **Rich** content.
+- **Docking**: Pinning a widget to an edge (`top`, `bottom`, `left`, `right`) via CSS.
+- **Mounting**: The process of adding a widget to the TUI.
+
+### Rich (Visual Content)
+
+- **Renderable**: Anything Rich can draw (Panel, Table, Markdown).
+- **Panel**: A box with a border and a title. Our primary container for text.
+- **Group**: A way to stack multiple Rich elements inside a single `Static` widget.
+- **Segment/Style**: Low-level control for colors and effects.
 
 ---
 
 ## Anatomy of a Screen
 
-Every screen follows this vertical stack:
+Every screen is a `Vertical` container by default, following this layout strategy:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  STATUS BAR  — Panel, always visible, always at top  │
-│  border_style="blue" (recording) / "yellow" (paused) │
+│  STATUS BAR (Static) — Dock: Top                    │
+│  Shows state via Rich Panel                         │
 ├──────────────────────┬──────────────────────────────┤
-│  SIDEBAR (optional)  │  CONTENT ZONE                 │
-│  fixed width (30–35) │  height: 1fr, scrollable      │
-│  border-right accent │  Rich Panel or TextArea       │
+│  BODY (Horizontal)   │  CONTENT ZONE (Vertical)     │
+│                      │                              │
+│  SIDEBAR (Static)    │  Primary information area    │
+│  Width: 30-35        │  Height: 1fr (fills space)   │
+│                      │                              │
 ├──────────────────────┴──────────────────────────────┤
-│  FOOTER  — render_footer(), always docked at bottom   │
+│  FOOTER (Static) — Dock: Bottom                     │
+│  Shows valid keys via render_footer()               │
 └─────────────────────────────────────────────────────┘
 ```
 
 **Rules:**
-- The STATUS BAR is never omitted. It tells the user the current state.
-- The FOOTER is never omitted. It shows exactly which keys are valid right now.
-- SIDEBAR is optional. Use only when the screen has persistent navigation (note actions, pause menu).
-- CONTENT ZONE may switch between modes (read / edit) using `ContentSwitcher`.
+
+- Use `Dock: Top/Bottom` for bars that should never scroll.
+- Use `Height: 1fr` on the main content to ensure it expands to fill the screen.
+- Never use print() — always `self.notify()` or update a `Static` widget.
 
 ---
 
@@ -45,29 +60,44 @@ Every screen follows this vertical stack:
 
 ```python
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.widgets import ContentSwitcher, Static, TextArea
 
 def compose(self) -> ComposeResult:
-    yield Static(id="status")            # top — Rich Panel via View
+    yield Static(id="status")            # Docked top in CSS
     with Horizontal(id="body"):
-        yield Static(id="sidebar")       # optional — Rich Panel via View
-        with ContentSwitcher(initial="content_read"):
-            yield Static(id="content_read")   # Rich Panel via View
-            yield TextArea(id="content_edit") # native Textual editor
-    yield Static(id="footer")            # bottom — render_footer()
+        yield Static(id="sidebar")       # Fixed width
+        with Vertical(id="content-container"):
+            with ContentSwitcher(initial="content_read"):
+                yield Static(id="content_read")
+                yield TextArea(id="content_edit")
+    yield Static(id="footer")            # Docked bottom in CSS
 ```
 
-**CSS minimum:**
+**CSS Strategy (TCSS):**
 ```css
 Screen {
     layout: vertical;
-    background: $surface;
 }
-#status  { height: auto; }
-#body    { height: 1fr; }
-#sidebar { width: 30; border-right: solid $accent; }
-#footer  { height: auto; dock: bottom; }
+
+#status {
+    dock: top;
+    height: auto;
+}
+
+#body {
+    height: 1fr; /* Takes all remaining vertical space */
+}
+
+#sidebar {
+    width: 32;
+    border-right: tall $accent;
+}
+
+#footer {
+    dock: bottom;
+    height: auto;
+}
 ```
 
 ---
@@ -256,8 +286,9 @@ def on_key(self, event) -> None:
 ## Summary Checklist for New Screens
 
 - [ ] Status bar at top (`Static`, updated via a View that returns a `Panel`).
+- [ ] Screen CSS uses `background: transparent` — never `$surface` or any colour.
 - [ ] Content zone fills remaining height (`height: 1fr`).
-- [ ] Footer at bottom (`Static`, updated via `render_footer()`).
+- [ ] Footer at bottom (`Static`, updated via `render_footer()`), always `dock: bottom` in CSS.
 - [ ] Footer changes when screen mode changes.
 - [ ] All Rich content built in `views/` — Screens only wire widgets.
 - [ ] `on_key` handles context-sensitive keys (never rely on `Binding` alone for mode-switching).

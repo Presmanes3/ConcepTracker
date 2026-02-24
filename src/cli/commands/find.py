@@ -1,5 +1,11 @@
+"""
+src/cli/commands/find.py
+
+Semantic search command — delegates fully to NoteFindInteractor.
+"""
 import typer
 from rich.console import Console
+from rich.panel import Panel
 
 from src.cli.interactors.note_find_interactor import NoteFindInteractor
 from src.cli.registry import registry
@@ -22,7 +28,6 @@ def find(
             query=query,
             limit=limit,
             page_size=page_size,
-            status_context=console.status,
         ).run()
     except ValueError as exc:
-        console.print(str(exc))
+        console.print(Panel(str(exc), title="[bold]Error[/bold]", border_style="red"))

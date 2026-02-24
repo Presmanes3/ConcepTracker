@@ -52,7 +52,7 @@ def note_card_view(
     out_links: Optional["List[Link]"] = None,
     in_links: Optional["List[Link]"] = None,
     title: Optional[str] = None,
-    border_style: str = "green",
+    border_style: str = "dim",
     truncate_content: Optional[int] = None,
 ) -> Panel:
     """
@@ -95,7 +95,7 @@ def note_header_view(
     return Panel(
         Group(meta, "", Text(preview, style="italic dim")),
         title=f"[bold green]Note #{note.id}[/bold green]",
-        border_style="green",
+        border_style="dim",
         expand=True,
     )
 
@@ -120,7 +120,7 @@ def note_detail_view(
     content_md = Markdown(note.content)
     summary_panel = Panel(
         f"[italic]{note.summary}[/italic]",
-        title="[dim]TL;DR / Summary[/dim]",
+        title="[bold]TL;DR / Summary[/bold]",
         border_style="dim",
         title_align="left",
     )
@@ -128,7 +128,7 @@ def note_detail_view(
     main_panel = Panel(
         Group(meta, Rule(style="dim"), content_md, "", summary_panel),
         title=f"[bold green]Note #{note.id}[/bold green]",
-        border_style="green",
+        border_style="dim",
         expand=True,
     )
 
@@ -153,7 +153,7 @@ def note_list_table_view(
     """
     table = Table(
         title=f"Knowledge Captures  [dim]({total_notes} total)[/dim]",
-        border_style="blue",
+        border_style="dim",
         box=None,
     )
     table.add_column("ID", style="cyan", justify="right")
@@ -196,7 +196,7 @@ def note_find_table_view(
     """
     table = Table(
         title=f"Top {total_results} matches for: [italic]'{query}'[/italic]",
-        border_style="blue",
+        border_style="dim",
         box=None,
     )
     table.add_column("Match", style="green", justify="right")

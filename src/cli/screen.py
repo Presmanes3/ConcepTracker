@@ -80,7 +80,7 @@ class AppScreen(Screen):
             except Exception:
                 pass
 
-    def build_layout(self) -> RenderableType:
+    def build_layout(self) -> Optional[RenderableType]:
         """Original AppScreen method: override this to return a Rich renderable."""
         return None
 
@@ -105,7 +105,7 @@ class AppScreen(Screen):
                 # Check if we are using the default compose (with #main_content)
                 self.query_one("#main_content", Static)
                 # Textual's call_after_refresh ensures the query happens after compose is finish
-                self.app.call_after_refresh(lambda: self.query_one("#main_content", Static).update(self.content))
+                self.app.call_after_refresh(lambda: self.query_one("#main_content", Static).update(self.content or ""))
             except Exception:
                 # Complex screens (like Pager) don't have #main_content, they have their own widgets
                 pass

@@ -9,3 +9,4 @@ class TranscriptionEnhancementState(TypedDict):
     applied_layers: List[str]
     action_items: Optional[List[str]]
     error: Optional[str]
+    user_prompt: Optional[str]   # optional free-text instruction from the user

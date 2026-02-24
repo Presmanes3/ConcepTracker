@@ -10,6 +10,7 @@ services:
   database: true
   transcribe: true
 transcription:
+  auto_pause_seconds: 30
   enhancement_pipeline:
   - speech_cleaner
   - markdown_formatter

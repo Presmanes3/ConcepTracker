@@ -1,4 +1,10 @@
-﻿from rich.console import Group, RenderableType
+﻿"""
+src/cli/views/ingest_views.py
+
+Pure rendering functions for the ingest command output.
+Data in, Rich renderable out — no console.print(), no DB calls.
+"""
+from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.text import Text
 
@@ -24,7 +30,7 @@ def render_ingest_result(
             f"[yellow]This concept is already in your brain (ID: {note_id})[/yellow]\n"
             f"{cost_str}\n\n"
             f"[dim]Reason: {reasoning}[/dim]",
-            title="Duplicate Ignored",
+            title="[bold]Duplicate Ignored[/bold]",
             border_style="yellow",
         )
 
@@ -34,7 +40,7 @@ def render_ingest_result(
             f"[bold cyan]Refined Summary:[/bold cyan] {summary}\n"
             f"{cost_str}\n\n"
             f"[dim]Logic: {reasoning}[/dim]",
-            title="Concept Refined",
+            title="[bold]Concept Refined[/bold]",
             border_style="blue",
         )
 
@@ -43,7 +49,7 @@ def render_ingest_result(
         Panel(
             f"[bold white]{summary}[/bold white]\n"
             f"[dim]ID: {note_id} | {cost_str}[/dim]",
-            title="New Note Saved",
+            title="[bold]New Note Saved[/bold]",
             border_style="green",
         )
     ]

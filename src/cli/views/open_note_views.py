@@ -36,14 +36,25 @@ def open_note_top_panel(note: "Note", arch_badge: str) -> Panel:
 
 def open_note_actions_panel() -> Panel:
     """
-    Bottom panel for the open_note screen.
-    Summarizes navigation controls.
+    Footer for the open_note screen — read/navigate mode.
     """
     from src.cli.components.footer import render_footer
     actions = [
-        ("▲/▼", "Navigate", "yellow"),
-        ("Space", "Expand/Select", "magenta"),
-        ("Enter", "Open", "green"),
-        ("Ctrl+C", "Back", "dim"),
+        ("\u25b2/\u25bc", "Navigate",     "yellow"),
+        ("Space",  "Expand/Select", "magenta"),
+        ("Enter",  "Open",          "green"),
+        ("Ctrl+C", "Back",          "dim"),
     ]
-    return render_footer(actions, border=True, border_style="dim cyan")
+    return render_footer(actions, border=True, border_style="dim")
+
+
+def open_note_edit_footer() -> Panel:
+    """
+    Footer for the open_note screen — edit mode.
+    """
+    from src.cli.components.footer import render_footer
+    actions = [
+        ("Ctrl+S", "Save edit", "green"),
+        ("Esc",    "Cancel",    "yellow"),
+    ]
+    return render_footer(actions, border=True, border_style="dim")

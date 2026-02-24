@@ -1,4 +1,10 @@
-﻿from rich.console import Group, RenderableType
+﻿"""
+src/cli/views/rm_views.py
+
+Pure rendering functions for the rm (delete) command.
+Data in, Rich renderable out — no console.print(), no DB calls.
+"""
+from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -31,7 +37,7 @@ def render_delete_confirmation(note) -> RenderableType:
         Text(""),
         Panel(
             details,
-            title=f"[white]Confirm Deletion of ID: {note.id}[/white]",
+            title=f"[bold]Confirm Deletion of Note #{note.id}[/bold]",
             border_style="red",
         ),
     )

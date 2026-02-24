@@ -1,4 +1,10 @@
-﻿from rich.columns import Columns
+﻿"""
+src/cli/views/stats_views.py
+
+Pure rendering functions for the stats dashboard.
+Data in, Rich renderable out — no console.print(), no DB calls.
+"""
+from rich.columns import Columns
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.text import Text
@@ -38,7 +44,11 @@ def render_stats_dashboard(results, is_configured: bool, days: int, hours: int) 
         title="Spend",
         border_style="green",
     )
-    header = Panel.fit(f"[bold white]{title}[/bold white]", border_style="blue")
+    header = Panel(
+        Text.from_markup(f"[bold white]{title}[/bold white]", justify="center"),
+        border_style="blue",
+        expand=True,
+    )
 
     if int(results["total_requests"]) > 0:
         avg = float(results["total_cost"]) / results["total_requests"]

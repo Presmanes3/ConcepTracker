@@ -9,7 +9,6 @@ from rich.console import Console
 
 from src.cli.screens.open_note_screen import OpenNoteScreen
 from src.cli.screen import run_screen, SCREEN_EXIT
-from src.cli.views.open_note_views import open_note_actions_panel
 from src.cli.views.arch_views import archipelago_badge
 from src.registry import repos
 
@@ -67,10 +66,14 @@ class OpenNoteInteractor:
                 note_summaries[link.source_id] = source_note.summary
 
         badge = self._resolve_badge()
-        actions_renderable = open_note_actions_panel()
 
         menu_items = [
-            ("🔙 Back", lambda: SCREEN_EXIT),
+            ("Edit Note",    lambda: None),  # TODO: push edit screen
+            ("AI",           lambda: None),  # not implemented
+            ("Trace",        lambda: None),  # TODO: push trace screen
+            ("Manage Tags",  lambda: None),  # TODO: push tag selector
+            ("Manage Links", lambda: None),  # TODO: push link manager
+            ("Delete",       lambda: None),  # TODO: confirm + delete
         ]
 
         return OpenNoteScreen(
@@ -79,7 +82,6 @@ class OpenNoteInteractor:
             out_links=out_links,
             in_links=in_links,
             note_summaries=note_summaries,
-            actions_renderable=actions_renderable,
             menu_items=menu_items,
         )
 

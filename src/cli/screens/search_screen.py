@@ -15,7 +15,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.widgets import Static
 
-from src.cli.screen import AppScreen, SCREEN_EXIT
+from src.cli.screen import AppScreen, SCREEN_EXIT, ScreenSignal
 from src.cli.screens.pager import _TablePagerScreen
 from src.cli.views import note_card_view, note_find_table_view, prefetch_arch_cache
 from src.registry import repos
@@ -32,7 +32,7 @@ def _build_preview_for_find(item, arch_cache):
         note,
         arch_badge=arch_cache.get(note.archipelago_id, "[dim]~island~[/dim]"),
         title=title,
-        border_style=color,
+        border_style="dim",
     )
 
 
@@ -68,7 +68,7 @@ class SemanticSearchScreen(AppScreen):
                 Text.from_markup(f"[cyan]Searching for [bold]'{self._query}'[/bold]...[/cyan]"),
                 vertical="middle"
             ),
-            border_style="cyan"
+            border_style="dim"
         )
         self.query_one("#search_status", Static).update(status)
 
@@ -121,7 +121,7 @@ class SemanticSearchScreen(AppScreen):
             await asyncio.sleep(3)
             await self.process_signal(SCREEN_EXIT)
 
-    def handle_action(self, key: str) -> None:
+    def handle_action(self, key: str) -> ScreenSignal:
         """Escape exits during search."""
         if key == "escape":
             return SCREEN_EXIT

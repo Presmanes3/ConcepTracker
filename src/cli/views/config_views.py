@@ -1,4 +1,10 @@
-﻿from rich.console import Group, RenderableType
+﻿"""
+src/cli/views/config_views.py
+
+Pure rendering functions for the config command.
+Data in, Rich renderable out — no console.print(), no DB calls.
+"""
+from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.text import Text
 
@@ -39,9 +45,9 @@ def render_config_summary(active_id, pricing) -> Panel:
         f" - Use [bold]--input[/bold]/[bold]--output[/bold] to set USD per 1M tokens\n"
         f" - Use [bold]--list[/bold] to see all saved models\n\n"
         f"[dim]Example:[/dim] [white]ct config -m 'amazon.nova-micro-v1:0' -i 0.04 -o 0.16 --active[/white]",
-        title="Config Summary",
+        title="[bold]Config Summary[/bold]",
         border_style="blue",
-        expand=False,
+        expand=True,
     )
 
 
@@ -50,6 +56,6 @@ def render_model_activated(model) -> Panel:
     return Panel(
         f"Model ID [bold cyan]{model}[/bold cyan] is now the [bold]active[/bold] model.\n"
         f"All future ingestions will use this model unless specified otherwise.",
-        title="Model Activated",
+        title="[bold]Model Activated[/bold]",
         border_style="green",
     )

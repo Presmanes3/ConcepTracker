@@ -53,9 +53,11 @@ class RecordingScreen(AppScreen):
     }
     #recording_zone {
         height: auto;
+        margin-bottom: 1;
     }
     #transcription_zone {
         height: 1fr;
+        margin-bottom: 1;
     }
     #navigation_zone {
         height: auto;
@@ -74,10 +76,13 @@ class RecordingScreen(AppScreen):
         self._initial_duration = initial_duration
         self._start_time       = time.time()
         self.result            = "pause"     # default: exit → show pause menu
-        self._elapsed_timer    = None
-        self._blink_timer      = None
-        self._is_paused        = False       # True while pause overlay is on top
-        self._stream_dead      = False       # True when AWS stream timed out during pause
+        self._elapsed_timer       = None
+        self._blink_timer         = None
+        self._auto_pause_timer    = None        # one-shot timer for auto-pause
+        self._auto_pause_seconds  = 0           # loaded from config in on_mount
+        self._is_paused           = False       # True while pause overlay is on top
+        self._stream_dead         = False       # True when AWS stream timed out during pause
+        self._pause_interactor    = None        # PauseTranscriptionInteractor while paused
 
     # ── Compose ──────────────────────────────────────────────────────────────
 
@@ -92,9 +97,30 @@ class RecordingScreen(AppScreen):
         super().on_mount()
         self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         self._blink_timer   = self.set_interval(0.5, self._tick_blink)
+        self._load_auto_pause()
         self._render_status()
         self._render_transcript()
         self._render_nav()
+
+    def _load_auto_pause(self) -> None:
+        """Read auto_pause_seconds from config and start the one-shot timer."""
+        try:
+            from src.repository.config_repository import config_repository
+            settings = config_repository.get_settings()
+            ap = settings.transcription.auto_pause_seconds if settings.transcription else 0
+        except Exception:
+            ap = 0
+        self._auto_pause_seconds = ap or 0
+        if self._auto_pause_seconds > 0:
+            self._auto_pause_timer = self.set_timer(
+                self._auto_pause_seconds, self._on_auto_pause
+            )
+
+    def _on_auto_pause(self) -> None:
+        """Fired by the one-shot auto-pause timer — pause if still recording."""
+        self._auto_pause_timer = None
+        if not self._is_paused:
+            self._pause()
 
     # ── Timers ────────────────────────────────────────────────────────────────
 
@@ -132,9 +158,10 @@ class RecordingScreen(AppScreen):
             words      = len(full_text.split()) if full_text.strip() else 0
             tokens     = int(words * 1.3)
             icon       = "●" if self.is_blink_on else "○"
-            style      = "bold red" if self.is_blink_on else "dim red"
+            dot_style  = "bold red" if self.is_blink_on else "dim red"
+
             self.query_one("#recording_zone", Static).update(
-                render_recording_status(icon, style, time_str, words, tokens)
+                render_recording_status(icon, dot_style, time_str, words, tokens)
             )
         except Exception:
             pass
@@ -184,7 +211,7 @@ class RecordingScreen(AppScreen):
     # ── Pause flow ────────────────────────────────────────────────────────────
 
     def _pause(self) -> None:
-        """Push PauseTranscriptionScreen in the same Textual session.
+        """Push PauseTranscriptionScreen via its Interactor.
 
         The audio pipeline keeps running while the pause screen is visible.
         Timers are paused so the recording screen stops repainting underneath
@@ -192,43 +219,47 @@ class RecordingScreen(AppScreen):
         When the pause screen is dismissed, ``_on_pause_done`` fires and
         the timers are resumed.
         """
-        from src.cli.screens.pause_transcription_screen import PauseTranscriptionScreen
+        from src.cli.interactors.pause_transcription_interactor import (
+            PauseTranscriptionInteractor,
+        )
 
-        # Stop the recording screen's timers while the pause overlay is shown.
-        # Without this, _tick_blink (0.5s) and _tick_elapsed (1s) keep firing,
-        # calling Static.update() underneath the overlay which forces a full
-        # compositor repaint — visible as a terminal-wide flash.
+        # Cancel any pending auto-pause timer
+        if self._auto_pause_timer:
+            self._auto_pause_timer.stop()
+            self._auto_pause_timer = None
+
         if self._blink_timer:
             self._blink_timer.pause()
         if self._elapsed_timer:
             self._elapsed_timer.pause()
         self._is_paused = True
 
-        full_text = " ".join(self.full_transcript)
-        mins, secs = divmod(int(self.elapsed_seconds), 60)
-        pause_screen = PauseTranscriptionScreen(
-            full_text=full_text,
-            time_str=f"{mins:02d}:{secs:02d}",
+        self._pause_interactor = PauseTranscriptionInteractor(
+            full_transcript=list(self.full_transcript),
+            elapsed_seconds=self.elapsed_seconds,
         )
+        pause_screen = self._pause_interactor.build_screen()
         self.app.push_screen(pause_screen, callback=self._on_pause_done)
 
-    def _on_pause_done(self, result: object) -> None:
+    def _on_pause_done(self, raw_result: object) -> None:
         """Called when PauseTranscriptionScreen is dismissed."""
-        # Resume the timers now that the pause overlay is gone.
         self._is_paused = False
         if self._blink_timer:
             self._blink_timer.resume()
         if self._elapsed_timer:
             self._elapsed_timer.resume()
-        # Re-render once now to catch anything that arrived while paused.
+        # Re-render once to catch anything that arrived while paused.
         self._render_status()
         self._render_transcript()
 
-        if result is None:
-            result = ("resume", None)
-        action, edited_text = result if isinstance(result, tuple) else (result, None)
+        # Delegate result processing (including "enhance") to the interactor.
+        # For "enhance", the interactor suspends the TUI, runs AI, resumes.
+        action, edited_text = self._pause_interactor.process_result(
+            self.app, raw_result
+        )
+        self._pause_interactor = None
 
-        # Apply any inline edits
+        # Apply any inline edits.
         if edited_text is not None:
             self.full_transcript = [edited_text]
             self.current_partial = ""
@@ -240,9 +271,18 @@ class RecordingScreen(AppScreen):
                 self.result = "resume"
                 self.app.exit(result="resume")
             else:
-                return  # stream still alive — just continue recording
+                # Insert a paragraph break so the next AWS segments start
+                # on a new line instead of continuing inline.
+                if self.full_transcript:
+                    self.full_transcript = [*self.full_transcript, "\n\n"]
+                # Restart the auto-pause timer for the next recording window.
+                if self._auto_pause_seconds > 0:
+                    self._auto_pause_timer = self.set_timer(
+                        self._auto_pause_seconds, self._on_auto_pause
+                    )
+                return  # stream still alive — continue recording
 
-        # save / discard / enhance → exit the Textual app
+        # save / discard → exit the Textual app
         self.result = action
         self.app.exit(result=action)
 

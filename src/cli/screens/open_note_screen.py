@@ -3,9 +3,7 @@ Open Note Screen — TUI screen for viewing a note and its connections.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional, Tuple
-
-from typing import Dict, List
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.console import Console, Group, RenderableType
 from rich.markdown import Markdown
@@ -14,8 +12,9 @@ from rich.table import Table
 from rich.text import Text
 
 from src.cli.screen import AppScreen, SCREEN_EXIT, ScreenSignal
-# No longer using _input.py for key detection, using Textual's key names.
+from src.cli.components.editor import MarkdownEditor
 from src.cli.views.link_views import link_table_view
+from src.cli.views.open_note_views import open_note_actions_panel, open_note_edit_footer
 
 console = Console()
 
@@ -27,6 +26,7 @@ _ZONE_MENU = "menu"
 
 from textual.reactive import reactive
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.widgets import Static
 
 class OpenNoteScreen(AppScreen):
@@ -34,7 +34,25 @@ class OpenNoteScreen(AppScreen):
     Interactive screen for viewing a note.
     """
     alternate_screen = True
-    
+
+    DEFAULT_CSS = """
+    OpenNoteScreen {
+        layout: vertical;
+        background: transparent;
+    }
+    #top_panel     { height: auto; }
+    #middle_panel  { height: auto; }
+    #bottom_row    { height: 1fr; }
+    #menu_panel    { width: 26; height: 100%; }
+    #content_panel { width: 1fr; height: 100%; }
+    #footer        { height: auto; dock: bottom; }
+
+    #note_edit_zone { 
+        width: 1fr; 
+        height: 100%; 
+    }
+    """
+
     # Reactive state
     top_expanded: reactive[bool] = reactive(False)
     middle_expanded: reactive[bool] = reactive(False)
@@ -48,7 +66,6 @@ class OpenNoteScreen(AppScreen):
         out_links: list,
         in_links: list,
         note_summaries: dict,
-        actions_renderable: RenderableType,
         menu_items: List[Tuple[str, Callable[[], Any]]],
     ):
         # 1. Non-reactive data members
@@ -57,9 +74,9 @@ class OpenNoteScreen(AppScreen):
         self._out_links = out_links
         self._in_links = in_links
         self._note_summaries = note_summaries
-        self.actions_renderable = actions_renderable
         self.menu_items = menu_items
         self.right_pane_renderable: Optional[RenderableType] = None
+        self._mode: str = "read"
         
         # 2. Call super
         super().__init__()
@@ -73,8 +90,14 @@ class OpenNoteScreen(AppScreen):
         self.menu_index = 0
 
     def compose(self) -> ComposeResult:
-        # Standard Rich bridge container
-        yield Static(id="main_content")
+        yield Static(id="top_panel")
+        yield Static(id="middle_panel")
+        with Horizontal(id="bottom_row"):
+            yield Static(id="menu_panel")
+            # Content panel (right side). The MarkdownEditor is mounted dynamically
+            # on demand so it never silently absorbs focus while hidden.
+            yield Static(id="content_panel")
+        yield Static(id="footer")
 
     def watch_top_expanded(self, _) -> None:
         self.refresh_zones()
@@ -90,30 +113,103 @@ class OpenNoteScreen(AppScreen):
 
     def on_mount(self) -> None:
         super().on_mount()
+        self._refresh_footer()
+        self.refresh_zones()
 
-    # ------------------------------------------------------------------ #
-    #  Layout construction                                                 #
-    # ------------------------------------------------------------------ #
-
-    def _build_renderable(self) -> Group:
-        """Assemble all zones as a Group so height is driven by content."""
-        parts: List[RenderableType] = []
+    def _refresh_footer(self) -> None:
+        """Swap footer content based on current mode."""
         try:
-            parts.append(self._render_top())
-            parts.append(self._render_middle())
-            parts.append(self._render_bottom())
-            parts.append(getattr(self, "actions_renderable", ""))
-        except Exception as e:
-            parts.append(Panel(f"[red]Rendering error: {e}[/red]"))
-        
-        return Group(*parts)
-
-    def build_layout(self) -> Group:
-        return self._build_renderable()
+            renderable = open_note_edit_footer() if self._mode == "edit" else open_note_actions_panel()
+            self.query_one("#footer", Static).update(renderable)
+        except Exception:
+            pass
 
     def refresh_zones(self) -> None:
-        # Updating self.content triggers AppScreen.watch_content
-        self.content = self._build_renderable()
+        """Push Rich renderables into the individual Textual widgets."""
+        try:
+            self.query_one("#top_panel", Static).update(self._render_top())
+        except Exception:
+            pass
+        try:
+            self.query_one("#middle_panel", Static).update(self._render_middle())
+        except Exception:
+            pass
+        try:
+            self.query_one("#menu_panel", Static).update(self._render_menu())
+        except Exception:
+            pass
+        if self._mode == "read":
+            try:
+                self.query_one("#content_panel", Static).update(self._render_content())
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------ #
+    #  Edit-mode lifecycle                                                 #
+    # ------------------------------------------------------------------ #
+
+    def _enter_note_edit(self) -> None:
+        """Dynamically mount MarkdownEditor into #bottom_row and focus it."""
+        note_text = getattr(self._note, "content", "") or ""
+
+        # Hide the content hint panel; menu stays visible
+        self.query_one("#content_panel", Static).display = False
+
+        # Mount the editor fresh — avoids the hidden-TextArea focus-absorption bug.
+        bottom_row = self.query_one("#bottom_row", Horizontal)
+        editor = MarkdownEditor(
+            initial_text=note_text,
+            title="Edit Note",
+            subtitle="Ctrl+S \u00b7 Esc",
+            id="note_edit_zone",
+        )
+        bottom_row.mount(editor)
+        # Focus is handled automatically by MarkdownEditor.on_mount, which runs
+        # after compose() so #editor_textarea is guaranteed to exist.
+
+        self._mode = "edit"
+        self._refresh_footer()
+        self.query_one("#menu_panel", Static).update(self._render_menu())
+
+    def _mode_transition_to_read(self) -> None:
+        """Remove the dynamic editor widget and restore read mode cleanly."""
+        self._mode = "read"
+        try:
+            self.query_one("#note_edit_zone", MarkdownEditor).remove()
+        except Exception:
+            pass
+        try:
+            self.query_one("#content_panel", Static).display = True
+            # Return focus to the screen so key events (Space, arrows…) work again
+            self.focus()
+            self.refresh_zones()
+            self._refresh_footer()
+        except Exception:
+            pass
+
+    def _leave_note_edit(self) -> None:
+        """Commit discard and return."""
+        self._mode_transition_to_read()
+
+    def _save_note_edit(self) -> None:
+        """Commit the edited text to the note object, then leave edit mode."""
+        try:
+            new_text = self.query_one("#note_edit_zone", MarkdownEditor).text
+            self._note.content = new_text
+        except Exception:
+            pass
+        self._mode_transition_to_read()
+
+    def _update_preview(self) -> None:
+        """No longer used — logic moved into MarkdownEditor component."""
+        pass
+
+    # ------------------------------------------------------------------ #
+    #  Layout construction (top + middle zones only; bottom is Textual)   #
+    # ------------------------------------------------------------------ #
+
+    def build_layout(self) -> None:
+        return None  # layout driven entirely by refresh_zones()
 
     # ------------------------------------------------------------------ #
     #  Zone renderers                                                      #
@@ -123,44 +219,38 @@ class OpenNoteScreen(AppScreen):
         note = getattr(self, "_note", None)
         if not note:
             return Panel("[red]Error: Note not found[/red]")
-        
+
         is_focused = self.focus_zone == _ZONE_TOP
-        border = "bold bright_yellow blink" if is_focused else "green"
+        border = "green" if is_focused else "dim"
         icon = "▼" if self.top_expanded else "▶"
-        title_color = "bright_yellow" if is_focused else "green"
+        title_color = "green" if is_focused else "dim"
         title = f"[bold {title_color}]{icon} Note #{note.id}[/bold {title_color}]"
 
         try:
             date_str = note.created_at.strftime("%Y-%m-%d %H:%M")
-        except:
+        except Exception:
             date_str = "(unknown date)"
-            
+
         tags_str = f"[magenta]{note.tags}[/magenta]" if getattr(note, "tags", None) else "[dim]No Tags[/dim]"
         raw = getattr(note, "content", "") or ""
 
-        if not self.top_expanded:
-            # Meta row + multi-line markdown preview
-            preview_text = (raw[:400].strip() + "\n\n…") if len(raw) > 400 else raw.strip() or "[italic dim]No content[/italic dim]"
-            tbl = Table.grid(padding=(0, 4))
-            tbl.add_row(
-                f"[bold cyan]ID:[/bold cyan] {note.id}",
-                f"[bold cyan]Arch:[/bold cyan] {getattr(self, '_arch_badge', '~')}",
-                f"[bold cyan]Date:[/bold cyan] {date_str}",
-                f"[bold cyan]Tags:[/bold cyan] {tags_str}",
-            )
-            return Panel(
-                Group(tbl, "", Markdown(preview_text)),
-                title=title,
-                border_style=border,
-                expand=True,
-            )
-
-        # Expanded: full meta + full markdown content
+        # Meta row is always the same single line regardless of expand/collapse
         meta = Table.grid(padding=(0, 4))
-        meta.add_row(f"[bold cyan]ID:[/bold cyan] {note.id}", f"[bold cyan]Date:[/bold cyan] {date_str}")
-        meta.add_row(f"[bold cyan]Archipelago:[/bold cyan] {getattr(self, '_arch_badge', '~')}", f"[bold cyan]Tags:[/bold cyan] {tags_str}")
+        meta.add_row(
+            f"[bold cyan]ID:[/bold cyan] {note.id}",
+            f"[bold cyan]Arch:[/bold cyan] {getattr(self, '_arch_badge', '~')}",
+            f"[bold cyan]Date:[/bold cyan] {date_str}",
+            f"[bold cyan]Tags:[/bold cyan] {tags_str}",
+        )
+
+        if self.top_expanded:
+            body = Markdown(raw) if raw.strip() else Text("No content.", style="dim italic")
+        else:
+            preview = (raw[:400].strip() + "\n\n…") if len(raw) > 400 else raw.strip()
+            body = Markdown(preview) if preview else Text("No content.", style="dim italic")
+
         return Panel(
-            Group(meta, "", Markdown(raw)),
+            Group(meta, "", body),
             title=title,
             border_style=border,
             expand=True,
@@ -168,9 +258,9 @@ class OpenNoteScreen(AppScreen):
 
     def _render_middle(self) -> RenderableType:
         is_focused = self.focus_zone == _ZONE_MIDDLE
-        border = "bold bright_yellow blink" if is_focused else "blue"
+        border = "green" if is_focused else "dim"
         icon = "▼" if self.middle_expanded else "▶"
-        title_color = "bright_yellow" if is_focused else "blue"
+        title_color = "green" if is_focused else "dim"
         title = f"[bold {title_color}]{icon} Connections[/bold {title_color}]"
 
         out_links = getattr(self, "_out_links", [])
@@ -190,34 +280,29 @@ class OpenNoteScreen(AppScreen):
         )
 
     def _render_bottom(self) -> RenderableType:
-        """Render menu + content side by side, auto-sized columns."""
-        menu_panel    = self._render_menu()
-        content_panel = self._render_content()
-
-        # auto-width grid: menu column is unsized (shrink-wraps),
-        # content column takes everything else
-        grid = Table.grid(expand=True)
-        grid.add_column("menu")                         # auto / shrink-wrap
-        grid.add_column("content", ratio=1)             # fills remaining space
-        grid.add_row(menu_panel, content_panel)
-        return grid
+        """Kept for compatibility — not used when layout uses Textual containers."""
+        return Group(self._render_menu(), self._render_content())
 
     def _render_menu(self) -> RenderableType:
         is_zone_focused = self.focus_zone == _ZONE_MENU
         items: list[Text] = []
         menu_items = getattr(self, "menu_items", [])
         for i, (label, _) in enumerate(menu_items):
-            if is_zone_focused and i == self.menu_index:
-                row = Text(f"▶ {label}", style="bold black on bright_yellow")
+            is_selected = is_zone_focused and i == self.menu_index
+            bullet = "●" if is_selected else "○"
+            if is_selected:
+                row = Text(f" {bullet} {label}", style="bold black on green")
+            elif "(not implemented)" in label.lower() or label == "AI":
+                row = Text(f" {bullet} {label}", style="dim")
             else:
-                row = Text(f"  {label}", style="white")
+                row = Text(f" {bullet} {label}", style="white")
             items.append(row)
 
         if not items:
             items.append(Text("  (empty)", style="dim"))
 
-        border = "bold bright_yellow blink" if is_zone_focused else "dim"
-        menu_title = "[bold bright_yellow]Menu[/bold bright_yellow]" if is_zone_focused else "[bold]Menu[/bold]"
+        border = "green" if is_zone_focused else "dim"
+        menu_title = "[bold green]Actions[/bold green]" if is_zone_focused else "[bold dim]Actions[/bold dim]"
         return Panel(
             Group(*items),
             title=menu_title,
@@ -225,11 +310,36 @@ class OpenNoteScreen(AppScreen):
         )
 
     def _render_content(self) -> RenderableType:
-        content = getattr(self, "right_pane_renderable", None) or Text(
-            "Select a menu option to view content here.",
-            style="dim italic",
+        # If a callback has set explicit content, show it
+        explicit = getattr(self, "right_pane_renderable", None)
+        if explicit:
+            return Panel(explicit, title="[bold]Content[/bold]", border_style="dim")
+
+        # Otherwise show a contextual hint for the focused menu item
+        if self.focus_zone == _ZONE_MENU:
+            menu_items = getattr(self, "menu_items", [])
+            if menu_items and self.menu_index < len(menu_items):
+                label, _ = menu_items[self.menu_index]
+                hints = {
+                    "Edit Note":     ("green",  "Open the note in the editor to modify its content."),
+                    "AI":            ("magenta", "[dim]AI actions are not implemented yet.[/dim]"),
+                    "Trace":         ("cyan",    "Visualise the chronological evolution of this concept."),
+                    "Manage Tags":   ("yellow",  "Add, remove or rename tags on this note."),
+                    "Manage Links":  ("blue",    "Add or remove connections to other notes."),
+                    "Delete":        ("red",     "[bold red]Permanently delete this note and all its links.[/bold red]"),
+                }
+                color, hint = hints.get(label, ("dim", "Press Enter to execute."))
+                return Panel(
+                    Text.from_markup(hint),
+                    title=f"[bold]{label}[/bold]",
+                    border_style=color,
+                )
+
+        return Panel(
+            Text("Navigate to Actions and press Enter.", style="dim italic"),
+            title="[bold]Content[/bold]",
+            border_style="dim",
         )
-        return Panel(content, title="Content", border_style="dim")
 
     # ------------------------------------------------------------------ #
     #  Focus helpers                                                       #
@@ -250,6 +360,15 @@ class OpenNoteScreen(AppScreen):
     # ------------------------------------------------------------------ #
 
     def handle_action(self, key: str) -> ScreenSignal:
+        # Edit mode: intercept all keys; only Ctrl+S and Esc are handled.
+        if self._mode == "edit":
+            if key == "ctrl+s":
+                self._save_note_edit()
+            elif key == "escape":
+                self._leave_note_edit()
+            # All other keys are consumed by the TextArea widget itself.
+            return None
+
         if key == "escape":
             return SCREEN_EXIT
 
@@ -280,7 +399,10 @@ class OpenNoteScreen(AppScreen):
         # ENTER — select focused menu item
         if key == "enter":
             if self.focus_zone == _ZONE_MENU and self.menu_items:
-                _, callback = self.menu_items[self.menu_index]
+                label, callback = self.menu_items[self.menu_index]
+                if label == "Edit Note":
+                    self._enter_note_edit()
+                    return None
                 return callback()
             return None
 
