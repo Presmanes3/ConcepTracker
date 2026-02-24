@@ -58,3 +58,16 @@ def open_note_edit_footer() -> Panel:
         ("Esc",    "Cancel",    "yellow"),
     ]
     return render_footer(actions, border=True, border_style="dim")
+
+
+def open_note_ai_footer() -> Panel:
+    """
+    Footer for the open_note screen — AI enhance mode.
+    """
+    from src.cli.components.footer import render_footer
+    actions = [
+        ("Ctrl+R", "Run AI",  "cyan"),
+        ("Ctrl+A", "Accept",  "green"),
+        ("Esc",    "Cancel",  "yellow"),
+    ]
+    return render_footer(actions, border=True, border_style="dim")

@@ -12,9 +12,10 @@ from rich.table import Table
 from rich.text import Text
 
 from src.cli.screen import AppScreen, SCREEN_EXIT, ScreenSignal
+from src.cli.components.ai_editor import AIEditor
 from src.cli.components.editor import MarkdownEditor
 from src.cli.views.link_views import link_table_view
-from src.cli.views.open_note_views import open_note_actions_panel, open_note_edit_footer
+from src.cli.views.open_note_views import open_note_actions_panel, open_note_ai_footer, open_note_edit_footer
 
 console = Console()
 
@@ -24,6 +25,8 @@ _ZONE_MIDDLE = "middle"
 _ZONE_MENU = "menu"
 
 
+from textual import work
+from textual.binding import Binding
 from textual.reactive import reactive
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -34,6 +37,36 @@ class OpenNoteScreen(AppScreen):
     Interactive screen for viewing a note.
     """
     alternate_screen = True
+
+    BINDINGS = [
+        Binding("ctrl+c", "quit_screen", "Quit",   priority=True, show=False),
+        Binding("ctrl+r", "run_ai",      "Run AI",  priority=True, show=False),
+        Binding("ctrl+a", "accept_ai",   "Accept",  priority=True, show=False),
+    ]
+
+    def action_run_ai(self) -> None:
+        """Ctrl+R — submit the AI prompt (only active in ai mode)."""
+        if self._mode != "ai":
+            return
+        try:
+            editor = self.query_one("#note_ai_zone", AIEditor)
+            editor.start_loading()
+            note_text = getattr(self._note, "content", "") or ""
+            self._run_note_ai_worker(note_text, editor.prompt_text or None)
+        except Exception:
+            pass
+
+    def action_accept_ai(self) -> None:
+        """Ctrl+A — accept the AI result (only active in ai mode)."""
+        if self._mode != "ai":
+            return
+        try:
+            editor = self.query_one("#note_ai_zone", AIEditor)
+            if editor._has_result:
+                self._note.content = editor.result_text
+                self._leave_ai_enhance()
+        except Exception:
+            pass
 
     DEFAULT_CSS = """
     OpenNoteScreen {
@@ -119,7 +152,12 @@ class OpenNoteScreen(AppScreen):
     def _refresh_footer(self) -> None:
         """Swap footer content based on current mode."""
         try:
-            renderable = open_note_edit_footer() if self._mode == "edit" else open_note_actions_panel()
+            if self._mode == "edit":
+                renderable = open_note_edit_footer()
+            elif self._mode == "ai":
+                renderable = open_note_ai_footer()
+            else:
+                renderable = open_note_actions_panel()
             self.query_one("#footer", Static).update(renderable)
         except Exception:
             pass
@@ -143,6 +181,106 @@ class OpenNoteScreen(AppScreen):
                 self.query_one("#content_panel", Static).update(self._render_content())
             except Exception:
                 pass
+    # ------------------------------------------------------------------ #
+    #  AI enhance lifecycle                                                #
+    # ------------------------------------------------------------------ #
+
+    def _enter_ai_enhance(self) -> None:
+        """Mount AIEditor into #bottom_row for AI-assisted note enhancement."""
+        note_text = getattr(self._note, "content", "") or ""
+        self.query_one("#content_panel", Static).display = False
+        bottom_row = self.query_one("#bottom_row", Horizontal)
+        bottom_row.mount(AIEditor(original_text=note_text, id="note_ai_zone"))
+        # AIEditor.on_mount focuses its prompt TextArea automatically.
+        self._mode = "ai"
+        self._refresh_footer()
+        self.query_one("#menu_panel", Static).update(self._render_menu())
+
+    def _leave_ai_enhance(self) -> None:
+        """Remove the AIEditor and restore read mode."""
+        self._mode = "read"
+        try:
+            self.query_one("#note_ai_zone", AIEditor).remove()
+        except Exception:
+            pass
+        try:
+            self.query_one("#content_panel", Static).display = True
+            self.focus()
+            self.refresh_zones()
+            self._refresh_footer()
+        except Exception:
+            pass
+
+    # ── AIEditor message handlers ────────────────────────────────────────
+
+    def on_ai_editor_submit_prompt(self, message: AIEditor.SubmitPrompt) -> None:
+        """Ctrl+R in AIEditor — start the AI worker."""
+        message.editor.start_loading()
+        note_text = getattr(self._note, "content", "") or ""
+        self._run_note_ai_worker(note_text, message.prompt or None)
+
+    def on_ai_editor_accept(self, message: AIEditor.Accept) -> None:
+        """Ctrl+A in AIEditor — apply the result to the note and return to read."""
+        self._note.content = message.result
+        self._leave_ai_enhance()
+
+    @work(thread=True, exclusive=True)
+    def _run_note_ai_worker(self, text: str, prompt: str | None) -> None:
+        """AI enhancement in a background thread."""
+        try:
+            from src.workflows.transcription_workflow import transcription_workflow
+            from shared.schemas.workflow.transcription import TranscriptionEnhancementState
+
+            _LABELS = {
+                "speech_cleaner":     "Speech cleaner",
+                "markdown_formatter": "Markdown formatter",
+                "no_op":              "",
+            }
+            context_text = (
+                f"[USER INSTRUCTION: {prompt}]\n\n{text}" if prompt else text
+            )
+            initial = TranscriptionEnhancementState(
+                raw_text=text,
+                current_text=context_text,
+                applied_layers=[],
+                action_items=None,
+                error=None,
+                user_prompt=prompt,
+            )
+            last_state = initial
+            for chunk in transcription_workflow.stream(initial):
+                for node_name, state in chunk.items():
+                    label = _LABELS.get(node_name, node_name.replace("_", " ").title())
+                    self.app.call_from_thread(self._on_ai_agent_step, label)
+                    last_state = state
+
+            enhanced = last_state.get("current_text", text) if isinstance(last_state, dict) else text
+            error    = last_state.get("error") if isinstance(last_state, dict) else None
+            if error:
+                self.app.call_from_thread(self._on_ai_error, str(error))
+            else:
+                self.app.call_from_thread(self._on_ai_done, enhanced)
+        except Exception as exc:
+            self.app.call_from_thread(self._on_ai_error, str(exc))
+
+    def _on_ai_agent_step(self, label: str) -> None:
+        try:
+            self.query_one("#note_ai_zone", AIEditor).update_agent(label)
+        except Exception:
+            pass
+
+    def _on_ai_done(self, enhanced_text: str) -> None:
+        try:
+            self.query_one("#note_ai_zone", AIEditor).set_result(enhanced_text)
+        except Exception:
+            pass
+        self._refresh_footer()
+
+    def _on_ai_error(self, error_msg: str) -> None:
+        try:
+            self.query_one("#note_ai_zone", AIEditor).set_error(error_msg)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     #  Edit-mode lifecycle                                                 #
@@ -360,13 +498,18 @@ class OpenNoteScreen(AppScreen):
     # ------------------------------------------------------------------ #
 
     def handle_action(self, key: str) -> ScreenSignal:
-        # Edit mode: intercept all keys; only Ctrl+S and Esc are handled.
+        # Edit mode: Ctrl+S / Esc handled here; everything else goes to TextArea.
         if self._mode == "edit":
             if key == "ctrl+s":
                 self._save_note_edit()
             elif key == "escape":
                 self._leave_note_edit()
-            # All other keys are consumed by the TextArea widget itself.
+            return None
+
+        # AI enhance mode: Esc returns to read; Ctrl+R / Ctrl+A handled by AIEditor.
+        if self._mode == "ai":
+            if key == "escape":
+                self._leave_ai_enhance()
             return None
 
         if key == "escape":
@@ -402,6 +545,9 @@ class OpenNoteScreen(AppScreen):
                 label, callback = self.menu_items[self.menu_index]
                 if label == "Edit Note":
                     self._enter_note_edit()
+                    return None
+                elif label == "AI":
+                    self._enter_ai_enhance()
                     return None
                 return callback()
             return None
