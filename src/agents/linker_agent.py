@@ -1,3 +1,6 @@
+# DEPRECATED: replaced by BidirectionalLinkerAgent in ingest_workflow.py.
+# Kept only for integration tests (tests/integration/test_bidirectional_linker.py).
+# Do NOT use in new code.
 from typing import Dict, Any
 from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.agents.linker import LinkerResult

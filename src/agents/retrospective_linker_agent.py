@@ -1,6 +1,10 @@
 """
 src/agents/retrospective_linker_agent.py
 ════════════════════════════════════════════════════════════════════════════════
+DEPRECATED: absorbed into BidirectionalLinkerAgent (ingest_workflow.py).
+Kept only so existing integration tests continue to import it without error.
+Do NOT use in new code.
+
 RetrospectiveLinkerAgent: resuelve la unidireccionalidad estructural del pipeline.
 
 El linker estándar (forward) solo evalúa: nueva_nota → notas_existentes.

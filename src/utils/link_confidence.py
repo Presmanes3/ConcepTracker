@@ -47,6 +47,7 @@ WEIGHT_TEMPORAL: float = 0.07
 
 AUTO_LINK_THRESHOLD: float = 0.90
 SEND_TO_LLM_LOW: float = 0.25
+NEAR_MISS_MIN: float = 0.10   # Below this score candidates are pure noise — not shown to user
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────

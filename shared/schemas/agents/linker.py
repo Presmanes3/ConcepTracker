@@ -35,6 +35,10 @@ class LinkItem(BaseModel):
         default=None,
         description="For BACKWARD links: the ID of the existing note that originates the link.",
     )
+    confidence: Optional[dict] = Field(
+        default=None,
+        description="Multi-signal confidence breakdown from link_confidence.py (score, signals).",
+    )
 
 
 class LinkerResult(BaseModel):
