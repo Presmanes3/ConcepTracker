@@ -4,6 +4,14 @@ src/cli/ui.py — REMOVED.
 All rendering logic lives in src/cli/views/ and src/cli/screens/.
 This file is intentionally empty. Import directly from those packages.
 """
+from typing import Optional
+from rich.console import Group
+from rich.panel import Panel
+from src.cli.views.arch_views import archipelago_badge
+from src.cli.views.note_views import note_card_view, note_header_view, note_detail_view
+from src.repository.archipelago_repository import archipelago_repository
+from src.repository.link_repository import link_repository
+from src.repository.note_repository import repository
 
 
 
@@ -21,7 +29,6 @@ def get_archipelago_badge(
         return arch_cache[archipelago_id]
     if not archipelago_id:
         return "[dim]~island~[/dim]"
-    from src.repository.archipelago_repository import archipelago_repository
     arch = archipelago_repository.get_archipelago_by_id(archipelago_id)
     return archipelago_badge(arch.name if arch else None, arch.type if arch else None)
 
@@ -38,7 +45,6 @@ def build_note_preview(
     badge = get_archipelago_badge(note.archipelago_id, arch_cache)
     out_links, in_links = [], []
     if show_links:
-        from src.repository.link_repository import link_repository
         out_links = link_repository.get_links_by_source(note.id)
         in_links = link_repository.get_links_by_target(note.id)
     return note_card_view(
@@ -60,9 +66,6 @@ def build_note_header(note) -> "Panel":
 
 def build_note_dashboard(note) -> "Group":
     """DEPRECATED — use src.cli.views.note_views.note_detail_view() instead."""
-    from src.repository.link_repository import link_repository
-    from src.repository.note_repository import repository
-
     badge = get_archipelago_badge(note.archipelago_id)
     out_links = link_repository.get_links_by_source(note.id)
     in_links = link_repository.get_links_by_target(note.id)

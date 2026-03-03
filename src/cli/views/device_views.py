@@ -12,6 +12,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from src.cli.components.footer import render_footer
+
 
 def render_device_table(
     devices: List[Dict[str, Any]],
@@ -75,8 +77,6 @@ def render_device_nav_panel(status_msg: Optional[str] = None) -> Panel:
     Args:
         status_msg: Optional status line (e.g. "✔ Headset Mic selected").
     """
-    from src.cli.components.footer import render_footer
-
     actions = [
         ("↑ / k", "Up",     "cyan"),
         ("↓ / j", "Down",   "cyan"),

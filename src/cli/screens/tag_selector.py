@@ -7,6 +7,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.columns import Columns
 from src.cli.screen import AppScreen, SCREEN_EXIT, run_screen
+from src.cli.components.footer import render_footer
 # No longer using _input.py for key detection, using Textual's key names.
 
 console = Console()
@@ -135,7 +136,6 @@ class TagSelectorUI:
         
         columns = Columns(panels, expand=True, equal=True)
         
-        from src.cli.components.footer import render_footer
         hint = render_footer([
             ("▲/▼", "Navigate", "yellow"),
             ("◀/▶", "Switch Category", "cyan"),

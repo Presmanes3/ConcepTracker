@@ -23,6 +23,13 @@ from src.agents.bidirectional_linker_agent import BidirectionalLinkerAgent
 from src.workflows.geo_workflow import geo_graph
 from shared.schemas.workflow.geo import GeoState
 
+# Utilities and services used in linking nodes
+from src.utils.embeddings import DISTANCE_DEDUP_CUTOFF, DISTANCE_LINKING_CUTOFF
+from src.utils.link_confidence import compute_link_confidence, SEND_TO_LLM_LOW
+from src.utils.rrf import rrf_fuse
+from src.services.search_service import search_service
+
+
 def normalize_and_embed(state: IngestState):
     """Nodo 1: Ingest Agent - Limpia y genera Embeddings + Summary."""
     agent = NormalizerAgent()
@@ -42,7 +49,6 @@ def classify_concept(state: IngestState):
 
 def search_before_save(state: IngestState):
     """Find similar notes before committing to DB."""
-    from src.utils.embeddings import DISTANCE_DEDUP_CUTOFF
     raw_similar = note_repository.get_similar_notes(
         current_id=None,
         embedding=state.embedding,
@@ -93,10 +99,6 @@ def search_related_for_linking(state: IngestState):
       • sharing the same domain_family as the new note.
     This prevents spurious cross-domain links from the temporal heuristic.
     """
-    from src.services.search_service import search_service
-    from src.utils.rrf import rrf_fuse
-    from src.utils.embeddings import DISTANCE_LINKING_CUTOFF
-
     # Recent notes beyond this cosine distance also need domain_family match
     TEMPORAL_MAX_DISTANCE = 0.70
 
@@ -150,7 +152,6 @@ def search_related_for_linking(state: IngestState):
     all_candidates = recent_notes + fused
 
     # 3. Enrich every candidate with multi-signal link confidence
-    from src.utils.link_confidence import compute_link_confidence, SEND_TO_LLM_LOW
     rrf_top_ids = {item["id"] for item in fused[:5]}  # top-5 RRF positions
     for candidate in all_candidates:
         candidate["link_confidence"] = compute_link_confidence(

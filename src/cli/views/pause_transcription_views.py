@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
@@ -72,8 +73,6 @@ def render_pause_menu(
     visible_items — pre-filtered list (Screen hides children of collapsed parents).
     expanded_ids  — set of parent action_ids currently open (for ▼/▶ arrow).
     """
-    from rich.console import Group
-
     if expanded_ids is None:
         expanded_ids = set()
 

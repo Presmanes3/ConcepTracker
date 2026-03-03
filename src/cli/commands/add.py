@@ -1,10 +1,12 @@
 import typer
+import questionary
 from rich.console import Console
 from rich.table import Table
 
+from shared.schemas.models.link import Link
 from shared.schemas.workflow.ingest import IngestState
 from src.cli.registry import registry
-
+from src.repository.link_repository import link_repository
 from src.workflows.ingest_workflow import ingest_graph
 from src.registry import repos
 from src.services.cost_service import cost_service
@@ -20,9 +22,6 @@ def _interactive_link_review(result: dict, note_id: int, get_note_summary_func) 
     Presents near-miss candidates in a table, lets the user select which ones
     to link, and persists the choices via link_repository.
     """
-    import questionary
-    from shared.schemas.models.link import Link
-    from src.repository.link_repository import link_repository
 
     near_misses = result.get("near_miss_candidates", [])
     if not near_misses:

@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 
 from shared.schemas.workflow.search import SearchState
 from src.agents.query_expansion_agent import QueryExpansionAgent
+from src.repository.config_repository import config_repository
 from src.services.embedding_service import embedding_service
 from src.services.rerank_service import rerank_service
 from src.services.search_service import search_service
@@ -18,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 def expand_query(state: SearchState) -> Dict[str, Any]:
     """Generate alternative phrasings via QueryExpansionAgent."""
-    from src.repository.config_repository import config_repository
-
     settings = config_repository.get_settings()
     agent = QueryExpansionAgent(expansion_count=settings.search.expansion_count)
     result = agent.run(state)
@@ -40,8 +39,6 @@ def embed_query(state: SearchState) -> Dict[str, Any]:
 
 def retrieve_vector(state: SearchState) -> Dict[str, Any]:
     """Run vector cosine-distance search for every query variant."""
-    from src.repository.config_repository import config_repository
-
     settings = config_repository.get_settings()
     limit = settings.search.top_k_before_rerank
 
@@ -71,8 +68,6 @@ def retrieve_vector(state: SearchState) -> Dict[str, Any]:
 
 def retrieve_bm25(state: SearchState) -> Dict[str, Any]:
     """Run FTS search for every query variant."""
-    from src.repository.config_repository import config_repository
-
     settings = config_repository.get_settings()
     limit = settings.search.top_k_before_rerank
     language = settings.search.language
@@ -96,8 +91,6 @@ def retrieve_bm25(state: SearchState) -> Dict[str, Any]:
 
 def fuse_results(state: SearchState) -> Dict[str, Any]:
     """Merge BM25 and vector ranked lists with Reciprocal Rank Fusion."""
-    from src.repository.config_repository import config_repository
-
     settings = config_repository.get_settings()
     fused = rrf_fuse(
         state.bm25_results,
@@ -120,8 +113,6 @@ def rerank_results(state: SearchState) -> Dict[str, Any]:
     Falls back to RRF-ordered results if reranking is unavailable (e.g. IAM
     permissions not yet granted for ``bedrock:Rerank``).
     """
-    from src.repository.config_repository import config_repository
-
     settings = config_repository.get_settings()
     try:
         reranked = rerank_service.rerank(
