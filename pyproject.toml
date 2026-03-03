@@ -27,9 +27,33 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Backend — FastAPI server and its direct dependencies.
+# Install with: pip install -e ".[api]"
+api = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+]
+
+# Frontend — CLI dependencies not needed in the Docker backend image.
+# All of these are already in the base dependencies list; this group
+# exists so the Dockerfile can explicitly exclude them if needed.
+cli = [
+    "textual",
+    "questionary",
+    "sounddevice",
+    "amazon-transcribe",
+]
+
+# HTTP + WebSocket clients used by the CLI to talk to the API.
+client = [
+    "httpx>=0.27",
+    "websockets>=12",
+]
+
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.14",
+    "httpx>=0.27",  # also needed for FastAPI TestClient
 ]
 
 [tool.pytest.ini_options]
