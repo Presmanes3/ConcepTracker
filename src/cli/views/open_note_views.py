@@ -48,6 +48,19 @@ def open_note_actions_panel() -> Panel:
     return render_footer(actions, border=True, border_style="dim")
 
 
+def open_note_delete_hint_panel() -> Panel:
+    """
+    Footer for the open_note screen — Delete item focused in the menu.
+    """
+    from src.cli.components.footer import render_footer
+    actions = [
+        ("\u25b2/\u25bc", "Navigate",     "yellow"),
+        ("Enter",  "Delete",         "red"),
+        ("Ctrl+C", "Back",          "dim"),
+    ]
+    return render_footer(actions, border=True, border_style="red")
+
+
 def open_note_edit_footer() -> Panel:
     """
     Footer for the open_note screen — edit mode.
@@ -71,3 +84,15 @@ def open_note_ai_footer() -> Panel:
         ("Esc",    "Cancel",  "yellow"),
     ]
     return render_footer(actions, border=True, border_style="dim")
+
+
+def open_note_delete_footer() -> Panel:
+    """
+    Footer for the open_note screen — delete confirmation mode.
+    """
+    from src.cli.components.footer import render_footer
+    actions = [
+        ("Enter", "Delete", "red"),
+        ("Esc",   "Cancel", "yellow"),
+    ]
+    return render_footer(actions, border=True, border_style="red")

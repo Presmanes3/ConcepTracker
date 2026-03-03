@@ -15,7 +15,8 @@ from src.cli.screen import AppScreen, SCREEN_EXIT, ScreenSignal
 from src.cli.components.ai_editor import AIEditor
 from src.cli.components.editor import MarkdownEditor
 from src.cli.views.link_views import link_table_view
-from src.cli.views.open_note_views import open_note_actions_panel, open_note_ai_footer, open_note_edit_footer
+from src.cli.views.open_note_views import open_note_actions_panel, open_note_ai_footer, open_note_delete_footer, open_note_delete_hint_panel, open_note_edit_footer
+from src.cli.views.rm_views import render_delete_confirmation
 
 console = Console()
 
@@ -156,6 +157,16 @@ class OpenNoteScreen(AppScreen):
                 renderable = open_note_edit_footer()
             elif self._mode == "ai":
                 renderable = open_note_ai_footer()
+            elif self._mode == "delete_confirm":
+                renderable = open_note_delete_footer()
+            elif (
+                self._mode == "read"
+                and self.focus_zone == _ZONE_MENU
+                and self.menu_items
+                and self.menu_index < len(self.menu_items)
+                and self.menu_items[self.menu_index][0] == "Delete"
+            ):
+                renderable = open_note_delete_hint_panel()
             else:
                 renderable = open_note_actions_panel()
             self.query_one("#footer", Static).update(renderable)
@@ -181,6 +192,7 @@ class OpenNoteScreen(AppScreen):
                 self.query_one("#content_panel", Static).update(self._render_content())
             except Exception:
                 pass
+        self._refresh_footer()
     # ------------------------------------------------------------------ #
     #  AI enhance lifecycle                                                #
     # ------------------------------------------------------------------ #
@@ -506,6 +518,14 @@ class OpenNoteScreen(AppScreen):
                 self._leave_note_edit()
             return None
 
+        # Delete confirmation mode: Enter/y to confirm, Esc/n to cancel.
+        if self._mode == "delete_confirm":
+            if key in ("enter", "y"):
+                return self._execute_delete()
+            elif key in ("escape", "n"):
+                self._leave_delete_confirm()
+            return None
+
         # AI enhance mode: Esc returns to read; Ctrl+R / Ctrl+A handled by AIEditor.
         if self._mode == "ai":
             if key == "escape":
@@ -549,9 +569,44 @@ class OpenNoteScreen(AppScreen):
                 elif label == "AI":
                     self._enter_ai_enhance()
                     return None
+                elif label == "Delete":
+                    self._enter_delete_confirm()
+                    return None
                 return callback()
             return None
 
+        return None
+
+    # ------------------------------------------------------------------ #
+    #  Delete-confirm lifecycle                                            #
+    # ------------------------------------------------------------------ #
+
+    def _enter_delete_confirm(self) -> None:
+        """Switch to delete-confirmation mode, showing a confirmation panel."""
+        self._mode = "delete_confirm"
+        try:
+            self.query_one("#content_panel", Static).update(
+                render_delete_confirmation(self._note)
+            )
+        except Exception:
+            pass
+        self._refresh_footer()
+        try:
+            self.query_one("#menu_panel", Static).update(self._render_menu())
+        except Exception:
+            pass
+
+    def _leave_delete_confirm(self) -> None:
+        """Cancel delete and return to normal read mode."""
+        self._mode = "read"
+        self.refresh_zones()
+        self._refresh_footer()
+
+    def _execute_delete(self) -> ScreenSignal:
+        """Run the Delete callback from menu_items and return its signal."""
+        for label, callback in self.menu_items:
+            if label == "Delete":
+                return callback()
         return None
 
     def _handle_space(self) -> ScreenSignal:

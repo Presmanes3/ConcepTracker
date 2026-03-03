@@ -19,13 +19,14 @@ from src.cli.screen import AppScreen, SCREEN_EXIT, ScreenSignal
 from src.cli.screens.pager import _TablePagerScreen
 from src.cli.views import note_card_view, note_find_table_view, prefetch_arch_cache
 from src.registry import repos
-from src.services.embedding_service import embedding_service
+from src.workflows.search_workflow import run_search
 
 
 # Re-use views from interactors
 def _build_preview_for_find(item, arch_cache):
-    note, distance = item
-    percentage = max(0, min(100, int((1 - distance) * 100)))
+    note, score = item
+    # score is a relevance value in [0, 1] where 1 = most relevant.
+    percentage = max(0, min(100, int(score * 100)))
     color = "green" if percentage > 70 else "yellow"
     title = f"[{color} bold]Preview: Note #{note.id} ({percentage}% Match)[/{color} bold]"
     return note_card_view(
@@ -73,13 +74,29 @@ class SemanticSearchScreen(AppScreen):
         self.query_one("#search_status", Static).update(status)
 
         try:
-            # 2. Fetch Embedding
-            vector = await asyncio.to_thread(embedding_service.get_embedding, self._query)
-            
-            # 3. Perform Search
-            self._results = await asyncio.to_thread(
-                repos.notes.semantic_search, vector, limit=self.limit
-            )
+            # 2. Run hybrid search pipeline (expand → BM25+vector → RRF → rerank).
+            raw_results = await asyncio.to_thread(run_search, self._query)
+
+            if not raw_results:
+                self.query_one("#search_status", Static).update(
+                    Panel("[yellow]No similar concepts found.[/yellow]", border_style="yellow")
+                )
+                await asyncio.sleep(2)
+                await self.process_signal(SCREEN_EXIT)
+                return
+
+            # 3. Load full Note objects for display, preserving rerank order.
+            result_ids = [r["id"] for r in raw_results[: self.limit]]
+            score_by_id = {r["id"]: r.get("rerank_score", 0.0) for r in raw_results}
+            notes_by_id = {
+                n.id: n
+                for n in await asyncio.to_thread(repos.notes.get_notes_by_ids, result_ids)
+            }
+            self._results = [
+                (notes_by_id[nid], score_by_id[nid])
+                for nid in result_ids
+                if nid in notes_by_id
+            ]
 
             if not self._results:
                 self.query_one("#search_status", Static).update(

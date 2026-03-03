@@ -69,7 +69,6 @@ class AgentRegistry:
         """Import all agent modules so their @register decorators fire."""
         import importlib
         _modules = [
-            "src.agents.tag_recommender_agent",
             "src.agents.linker_agent",
             "src.agents.gatekeeper_agent",
             "src.agents.normalizer_agent",
@@ -79,7 +78,6 @@ class AgentRegistry:
             "src.agents.speech_cleaner_agent",
             "src.agents.retrospective_linker_agent",
             "src.agents.bidirectional_linker_agent",
-            "src.agents.chunk_embed_agent",
         ]
         for mod in _modules:
             try:

@@ -73,7 +73,7 @@ class OpenNoteInteractor:
             ("Trace",        lambda: None),  # TODO: push trace screen
             ("Manage Tags",  lambda: None),  # TODO: push tag selector
             ("Manage Links", lambda: None),  # TODO: push link manager
-            ("Delete",       lambda: None),  # TODO: confirm + delete
+            ("Delete",       self._delete_note),
         ]
 
         return OpenNoteScreen(
@@ -85,10 +85,15 @@ class OpenNoteInteractor:
             menu_items=menu_items,
         )
 
+    def _delete_note(self):
+        """Delete the current note from the database and signal screen exit."""
+        self._note_repo.delete_note(self._note_id)
+        return SCREEN_EXIT
+
     def _resolve_badge(self) -> str:
         if not self._note.archipelago_id:
             return "[dim]~island~[/dim]"
         arch = self._arch_repo.get_archipelago_by_id(self._note.archipelago_id)
         if not arch:
             return f"[dim]Archipelago {self._note.archipelago_id}[/dim]"
-        return archipelago_badge(arch.id, arch.name)
+        return archipelago_badge(arch.name, arch.type)
