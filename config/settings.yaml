@@ -14,3 +14,11 @@ transcription:
   enhancement_pipeline:
   - speech_cleaner
   - markdown_formatter
+
+search:
+  expansion_count: 2
+  top_k_before_rerank: 30
+  rerank_top_n: 10
+  language: simple
+  reranker_model: cohere.rerank-v3-5:0
+  rrf_k: 60

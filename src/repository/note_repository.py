@@ -108,12 +108,12 @@ class NoteRepository:
                 for n in notes
             ]
 
-    def get_similar_notes(self, current_id: Optional[int], embedding: List[float], query_text: Optional[str] = None, limit: int = 5, threshold: float = 1.0) -> List[Dict[str, Any]]:
+    def get_similar_notes(self, current_id: Optional[int], embedding: List[float], query_text: Optional[str] = None, limit: int = 5, threshold: float = 1.0, language: str = "simple") -> List[Dict[str, Any]]:
         """Hybrid search: Vector-based nearest neighbors (pgvector) + Lexical search (BM25)."""
         with get_session() as session:
             if query_text:
                 # Hybrid search: Semantic + Lexical
-                query = text("""
+                query = text(f"""
                     WITH semantic AS (
                         SELECT id, content, summary, domain, domain_family,
                                (embedding <=> CAST(:vec AS vector)) as distance
@@ -123,10 +123,10 @@ class NoteRepository:
                     ),
                     lexical AS (
                         SELECT id,
-                               ts_rank_cd(to_tsvector('spanish', content), plainto_tsquery('spanish', :query_text)) as lexical_score
+                               ts_rank_cd(to_tsvector('{language}', content), plainto_tsquery('{language}', :query_text)) as lexical_score
                         FROM notes
                         WHERE (id != :current_id OR :current_id IS NULL)
-                          AND plainto_tsquery('spanish', :query_text) @@ to_tsvector('spanish', content)
+                          AND plainto_tsquery('{language}', :query_text) @@ to_tsvector('{language}', content)
                     )
                     SELECT s.id, s.content, s.summary, s.distance, s.domain, s.domain_family,
                            COALESCE(l.lexical_score, 0) as lexical_score,
