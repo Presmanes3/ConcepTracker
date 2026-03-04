@@ -7,8 +7,16 @@ from rich.console import Console
 
 from src.cli.client.http_client import ConcepTrackerClient
 from src.cli.screen import SCREEN_EXIT, run_screen
+from src.cli.screens.note_actions import NoteAction
 from src.cli.screens.open_note_screen import OpenNoteScreen
 from src.cli.views.arch_views import archipelago_badge
+from src.cli.views.open_note_views import (
+    open_note_ai_footer,
+    open_note_delete_footer,
+    open_note_delete_hint_panel,
+    open_note_edit_footer,
+    open_note_trace_footer,
+)
 
 console = Console()
 
@@ -56,6 +64,18 @@ class OpenNoteInteractor:
 
             badge = self._resolve_badge(client, note)
 
+        # ── Build screen ────────────────────────────────────────────────────────
+        screen = OpenNoteScreen(
+            note=note,
+            arch_badge=badge,
+            out_links=out_links,
+            in_links=in_links,
+            note_summaries=note_summaries,
+        )
+
+        # ── Register actions (Strategy pattern) ─────────────────────────────────
+        # Each NoteAction is a self-contained descriptor. To add a new mode in the
+        # future, append a NoteAction here — no other code needs to change.
         note_id_captured = self._note_id
 
         def _delete_note():
@@ -63,23 +83,62 @@ class OpenNoteInteractor:
                 del_client.delete_note(note_id_captured)
             return SCREEN_EXIT
 
-        menu_items = [
-            ("Edit Note",    lambda: None),
-            ("AI",           lambda: None),
-            ("Trace",        lambda: None),
-            ("Manage Tags",  lambda: None),
-            ("Manage Links", lambda: None),
-            ("Delete",       _delete_note),
+        actions = [
+            NoteAction(
+                label="Edit Note",
+                hint_color="green",
+                hint_text="Open the note in the editor to modify its content.",
+                mode_key="edit",
+                content_widget_id="editor_textarea",
+                enter=screen._enter_note_edit,
+                leave=screen._leave_note_edit,
+                footer_view=open_note_edit_footer,
+            ),
+            NoteAction(
+                label="AI",
+                hint_color="magenta",
+                hint_text="Invoke AI utility to refactor, translate or enhance using RAG context.",
+                mode_key="ai",
+                content_widget_id="ai_prompt",
+                enter=screen._enter_ai_enhance,
+                leave=screen._leave_ai_enhance,
+                footer_view=open_note_ai_footer,
+            ),
+            NoteAction(
+                label="Trace",
+                hint_color="cyan",
+                hint_text="Visualise the chronological evolution of this concept.",
+                mode_key="trace",
+                enter=screen._enter_trace,
+                leave=screen._leave_trace,
+                footer_view=open_note_trace_footer,
+            ),
+            NoteAction(
+                label="Manage Tags",
+                hint_color="yellow",
+                hint_text="Add, remove or rename tags on this note.",
+                disabled=True,
+            ),
+            NoteAction(
+                label="Manage Links",
+                hint_color="blue",
+                hint_text="Add or remove connections to other notes.",
+                disabled=True,
+            ),
+            NoteAction(
+                label="Delete",
+                hint_color="red",
+                hint_text="[bold red]Permanently delete this note and all its links.[/bold red]",
+                mode_key="delete_confirm",
+                enter=screen._enter_delete_confirm,
+                leave=screen._leave_delete_confirm,
+                confirm=_delete_note,
+                footer_view=open_note_delete_footer,
+                hover_footer=open_note_delete_hint_panel,
+            ),
         ]
-
-        return OpenNoteScreen(
-            note=note,
-            arch_badge=badge,
-            out_links=out_links,
-            in_links=in_links,
-            note_summaries=note_summaries,
-            menu_items=menu_items,
-        )
+        screen.set_actions(actions)
+        return screen
 
     # ── Private helpers ────────────────────────────────────────────────────────
 
