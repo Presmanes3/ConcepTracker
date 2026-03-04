@@ -73,8 +73,6 @@ class AgentRegistry:
             "src.agents.normalizer_agent",
             "src.agents.taxonomy_agent",
             "src.agents.geo_namer_agent",
-            "src.agents.markdown_formatter_agent",
-            "src.agents.speech_cleaner_agent",
             "src.agents.bidirectional_linker_agent",
             "src.agents.query_expansion_agent",
         ]
