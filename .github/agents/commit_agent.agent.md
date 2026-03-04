@@ -45,27 +45,23 @@ If the current branch is anything else, proceed silently.
 
 ### Step 2 — Gather full git state
 
-Run all five commands and collect their output:
+Run:
 
 ```powershell
-git diff --name-only
-git diff --name-only --cached
-git ls-files --others --exclude-standard
-git diff --name-status
-git diff --name-status --cached
+git status --porcelain
 ```
 
-Categorise each file under one of these git states:
+Categorise each file based on its porcelain status (XY):
 
-| Symbol | State | Detection |
-|---|---|---|
-| `M` | Modified (unstaged) | `git diff --name-only` |
-| `S` | Modified (staged) | `git diff --name-only --cached` |
-| `U` | Untracked (new file) | `git ls-files --others --exclude-standard` |
-| `D` | Deleted | `git diff --name-status` — lines starting with `D` |
-| `R` | Renamed | `git diff --name-status` — lines starting with `R` |
+| X (Index/Staged) | Y (Work Tree/Unstaged) | State | Description |
+|---|---|---|---|
+| `M` / `A` / `D` / `R` / `C` | ` ` | **S** (Staged) | Changes ready to be committed. |
+| ` ` | `M` | **M** (Modified) | Unstaged changes in the work tree. |
+| ` ` | `D` | **D** (Deleted) | File deleted but not yet staged (`git rm`). |
+| `?` | `?` | **U** (Untracked) | New file not yet tracked by git. |
+| `R` | ` ` | **R** (Renamed) | Renamed file already staged. |
 
-If every command returns empty output, print:
+If the command returns empty output, print:
 
 > "No pending changes found. Working tree is clean."
 
@@ -151,19 +147,16 @@ For each group being executed:
    - `yes` → run. `no` → skip and continue. `cancel` → stop immediately.
 3. Run the appropriate staging command based on file state:
 
-   - Modified or untracked files:
+   - **Untracked (U) or Modified (M):**
      ```powershell
      git add <file1> <file2> ...
      ```
-   - Deleted files:
+   - **Deleted (D):**
      ```powershell
      git rm <file1> <file2> ...
      ```
-   - Renamed files:
-     ```powershell
-     git add -A -- <old_path> <new_path>
-     ```
-   - Already-staged files: skip the `git add` step entirely.
+   - **Staged (S / R):**
+     Skip the staging command (it's already in the index).
 
 4. Run:
    ```powershell
@@ -175,8 +168,7 @@ For each group being executed:
    git log --oneline -1
    ```
 
-If any `git add` or `git commit` exits with a non-zero code, stop immediately, print the
-error output, and ask the user how to proceed before continuing with the next group.
+If any `git add`, `git rm`, or `git commit` exits with a non-zero code, stop immediately, print the error output, and ask the user how to proceed.
 
 ---
 
