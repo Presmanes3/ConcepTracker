@@ -42,10 +42,10 @@ def retrieve_vector(state: SearchState) -> Dict[str, Any]:
     settings = config_repository.get_settings()
     limit = settings.search.top_k_before_rerank
 
-    # Merge results from the original query plus all expansions.
-    all_queries = [state.query] + state.expanded_queries
     seen: Dict[int, Dict[str, Any]] = {}
 
+    # Merge vector search candidates from the original query and its expansions,
+    # de-duplicating by document id so each candidate is considered at most once.
     # Always search the original embedding first.
     for row in search_service.vector_search(state.query_embedding, limit=limit):
         seen[row["id"]] = row

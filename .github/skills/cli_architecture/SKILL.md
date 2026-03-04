@@ -120,8 +120,10 @@ def open_note_top_panel(note: "Note", arch_badge: str) -> Panel:
 
 - Subclass `AppScreen` (from `src.cli.screen`).
 - Define layout in `DEFAULT_CSS` (inline TCSS) or a companion `.tcss` file.
-- Declare global shortcuts in `BINDINGS`. Use `on_key` for context-sensitive keys.
+- Declare global shortcuts in `BINDINGS` using native Textual `Binding` objects.
+- Prefer declarative `BINDINGS` and `action_` methods over manual `on_key` bridges (deprecated).
 - State is held in Textual `reactive` attributes.
+- Use `on_show` for logic that needs to run every time focus returns to the screen (e.g., data refreshes).
 - Visual updates call a view function and pass the result to `Static.update()`.
 - Exit via `self.dismiss(signal)` where `signal` matches the `ScreenSignal` contract.
 
@@ -131,16 +133,13 @@ class RecordingScreen(AppScreen):
 
     elapsed_seconds: reactive[float] = reactive(0.0)
 
-    DEFAULT_CSS = """
-    RecordingScreen { layout: vertical; }
-    #transcription_zone { height: 1fr; }
-    #navigation_zone    { dock: bottom; height: auto; }
-    """
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("space", "toggle_recording", "Record"),
+    ]
 
-    def compose(self) -> ComposeResult:
-        yield Static(id="recording_zone")
-        yield Static(id="transcription_zone")
-        yield Static(id="navigation_zone")
+    async def action_back(self) -> None:
+        await self.process_signal(SCREEN_EXIT)
 
     def watch_elapsed_seconds(self, value: float) -> None:
         self.query_one("#recording_zone", Static).update(render_recording_status(value, ...))
@@ -152,6 +151,7 @@ class RecordingScreen(AppScreen):
 - Never render Rich content inline — always delegate to a view function.
 - Call `editor.focus()` immediately after switching `ContentSwitcher` to an edit widget.
 - Always update the footer when switching modes.
+- **Handling focus**: If a screen needs to refresh data after returning from a child screen, implement `on_show`.
 
 ---
 

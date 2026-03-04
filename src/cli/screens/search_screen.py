@@ -17,9 +17,9 @@ from textual.widgets import Static
 
 from src.cli.screen import AppScreen, SCREEN_EXIT, ScreenSignal
 from src.cli.screens.pager import _TablePagerScreen
-from src.cli.views import note_card_view, note_find_table_view, prefetch_arch_cache
-from src.registry import repos
-from src.workflows.search_workflow import run_search
+from src.cli.views import note_card_view, note_find_table_view
+from src.cli.client.http_client import ConcepTrackerClient
+from src.cli.views.arch_views import archipelago_badge
 
 
 # Re-use views from interactors
@@ -74,10 +74,11 @@ class SemanticSearchScreen(AppScreen):
         self.query_one("#search_status", Static).update(status)
 
         try:
-            # 2. Run hybrid search pipeline (expand → BM25+vector → RRF → rerank).
-            raw_results = await asyncio.to_thread(run_search, self._query)
+            # 2. Run hybrid search via API.
+            client = ConcepTrackerClient()
+            response = await asyncio.to_thread(client.search, self._query, self.limit)
 
-            if not raw_results:
+            if not response.results:
                 self.query_one("#search_status", Static).update(
                     Panel("[yellow]No similar concepts found.[/yellow]", border_style="yellow")
                 )
@@ -85,13 +86,13 @@ class SemanticSearchScreen(AppScreen):
                 await self.process_signal(SCREEN_EXIT)
                 return
 
-            # 3. Load full Note objects for display, preserving rerank order.
-            result_ids = [r["id"] for r in raw_results[: self.limit]]
-            score_by_id = {r["id"]: r.get("rerank_score", 0.0) for r in raw_results}
-            notes_by_id = {
-                n.id: n
-                for n in await asyncio.to_thread(repos.notes.get_notes_by_ids, result_ids)
-            }
+            # 3. Fetch full Note objects to preserve all fields (e.g. created_at).
+            result_ids = [r.id for r in response.results]
+            score_by_id = {r.id: r.score or 0.0 for r in response.results}
+            notes = await asyncio.gather(*[
+                asyncio.to_thread(client.get_note, nid) for nid in result_ids
+            ])
+            notes_by_id = {n.id: n for n in notes}
             self._results = [
                 (notes_by_id[nid], score_by_id[nid])
                 for nid in result_ids
@@ -106,9 +107,19 @@ class SemanticSearchScreen(AppScreen):
                 await self.process_signal(SCREEN_EXIT)
                 return
 
-            # 4. Resolve Cache
-            notes = [r[0] for r in self._results]
-            arch_cache = await asyncio.to_thread(prefetch_arch_cache, notes, repos.archipelagos)
+            # 4. Build arch_cache via API.
+            arch_ids = {
+                note.archipelago_id
+                for note, _ in self._results
+                if note.archipelago_id
+            }
+            arch_cache: Dict[int, str] = {}
+            for arch_id in arch_ids:
+                try:
+                    arch = await asyncio.to_thread(client.get_archipelago, arch_id)
+                    arch_cache[arch_id] = archipelago_badge(arch.name, arch.type)
+                except Exception:
+                    arch_cache[arch_id] = "[dim]~island~[/dim]"
 
             # 5. Transition to Pager — stays in the same Textual session.
             # on_select handles opening notes inline (no new run_screen).

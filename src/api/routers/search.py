@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter
 
-from src.api.schemas import SearchRequest, SearchResponse, SearchResultItem
+from shared.schemas.api.search import SearchRequest, SearchResponse, SearchResultItem
 from src.workflows.search_workflow import run_search
 
 router = APIRouter()

@@ -10,9 +10,9 @@ Responsibilities:
       "resume"  → pass through (continue recording).
       "save"    → pass through (caller exits transcription loop and saves).
       "discard" → pass through (caller discards).
-      "enhance" → suspend the Textual app, run the AI workflow (with Rich
-                  panels + questionary confirm), resume the app, then return
-                  ("save", enhanced_text | original_text).
+      "enhance" → suspend the Textual app, call the AI enhancement endpoint
+                  (with Rich panels + questionary confirm), resume the app,
+                  then return ("save", enhanced_text | original_text).
   - Expose `applied_enhancements` so the transcription layer can persist it.
 
 Usage (from RecordingScreen._pause):
@@ -33,6 +33,8 @@ import time
 from typing import List, Optional, Tuple
 
 from rich.console import Console
+
+from src.cli.client.http_client import ConcepTrackerClient
 
 _console = Console()
 
@@ -108,56 +110,35 @@ class PauseTranscriptionInteractor:
         """
         Blocking enhancement flow — runs OUTSIDE Textual (via app.suspend()).
 
-        Shows Rich panels for the original / enhanced text and a questionary
-        prompt to let the user accept or reject.
+        Calls the backend enhancement endpoint, shows Rich panels for the
+        original / enhanced text, and lets the user accept or reject.
 
-        If user_prompt is provided it is prepended to current_text so the LLM
-        agents see the instruction and adapt their output accordingly.
-
-        Returns the text the user chose (enhanced or original).
+        Returns:
+            The text the user chose (enhanced or original).
         """
         try:
             import questionary
             from rich.panel import Panel
-
-            from src.workflows.transcription_workflow import transcription_workflow
-            from shared.schemas.workflow.transcription import (
-                TranscriptionEnhancementState,
-            )
         except ImportError as exc:
             _console.print(f"[red]Enhancement unavailable: {exc}[/red]")
             time.sleep(2)
             return text
 
         with _console.status("[bold cyan]Enhancing with AI…[/bold cyan]"):
-            # If the user provided a custom instruction, prepend it so every
-            # agent in the workflow can see and follow it.
-            context_text = (
-                f"[USER INSTRUCTION: {user_prompt}]\n\n{text}"
-                if user_prompt
-                else text
-            )
-            initial = TranscriptionEnhancementState(
-                raw_text=text,
-                current_text=context_text,
-                applied_layers=[],
-                action_items=None,
-                error=None,
-                user_prompt=user_prompt,
-            )
             try:
-                final = transcription_workflow.invoke(initial)
+                with ConcepTrackerClient() as client:
+                    result = client.enhance_transcription(text, user_prompt)
             except Exception as exc:
                 _console.print(f"[red]Enhancement failed: {exc}[/red]")
                 time.sleep(2)
                 return text
 
-        if final.get("error"):
-            _console.print(f"[red]Enhancement error: {final['error']}[/red]")
+        if result.error:
+            _console.print(f"[red]Enhancement error: {result.error}[/red]")
             time.sleep(2)
             return text
 
-        enhanced_text: str = final["current_text"]
+        enhanced_text: str = result.enhanced_text
 
         _console.clear()
         _console.print(
@@ -184,9 +165,7 @@ class PauseTranscriptionInteractor:
             choice = "original"
 
         if choice == "enhanced":
-            self._applied_enhancements = json.dumps(
-                final.get("applied_layers", [])
-            )
+            self._applied_enhancements = json.dumps(result.applied_layers)
             _console.print("[green]✨ Enhanced version applied.[/green]")
             time.sleep(1)
             return enhanced_text

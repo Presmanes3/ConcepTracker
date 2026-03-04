@@ -1,6 +1,7 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static, TextArea
+from textual.message import Message
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
@@ -14,6 +15,18 @@ class MarkdownEditor(Horizontal):
     The preview updates 10 times per second (every 100ms) as requested.
     """
     
+    BINDINGS = [
+        ("ctrl+s", "save", "Save"),
+    ]
+
+    def action_save(self) -> None:
+        """Post a SaveRequest message to the screen."""
+        self.post_message(self.SaveRequest())
+
+    class SaveRequest(Message):
+        """Message sent to parent to request saving the current text."""
+        pass
+
     DEFAULT_CSS = """
     MarkdownEditor {
         width: 1fr;
@@ -40,13 +53,15 @@ class MarkdownEditor(Horizontal):
         initial_text: str = "", 
         title: str = "Edit", 
         subtitle: str = "Ctrl+S \u00b7 Esc",
-        id: str | None = None
+        id: str | None = None,
+        auto_focus: bool = True,
     ):
         super().__init__(id=id)
         self._initial_text = initial_text
         self._title = title
         self._subtitle = subtitle
         self._preview_timer = None
+        self._auto_focus = auto_focus
 
     def compose(self) -> ComposeResult:
         editor = TextArea(id="editor_textarea")
@@ -59,14 +74,18 @@ class MarkdownEditor(Horizontal):
         textarea = self.query_one("#editor_textarea", TextArea)
         if self._initial_text:
             textarea.load_text(self._initial_text)
-        
-        # Auto-focus the textarea when this component mounts
-        # (on_mount always runs after compose, so children are guaranteed to exist)
-        textarea.focus()
-
-        # Start the 10Hz preview timer
+        if self._auto_focus:
+            textarea.focus()
         self._preview_timer = self.set_interval(0.1, self._update_preview)
         self._update_preview()
+
+    def load_text(self, text: str) -> None:
+        """Replace the editor's content. Safe to call after mount."""
+        self._initial_text = text
+        try:
+            self.query_one("#editor_textarea", TextArea).load_text(text)
+        except Exception:
+            pass
 
     def _update_preview(self) -> None:
         """Fetch text from TextArea and render as Markdown in the Static panel."""

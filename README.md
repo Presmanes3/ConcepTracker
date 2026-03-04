@@ -68,10 +68,10 @@ ct ls
 ct trace "retrieval augmented generation"
 
 # Start a voice transcription session
-ct transcribe
+ct live_transcription
 
 # Open a note in the TUI
-ct open <note_id>
+ct open_note <note_id>
 ```
 
 ---

@@ -1,34 +1,27 @@
+﻿"""trace command â€” trace the chronological evolution of a concept."""
 from rich.console import Console
+from rich.panel import Panel
+
+from src.cli.interactors.note_trace_interactor import NoteTraceInteractor
 from src.cli.registry import registry
 
-from src.registry import repos
-from src.services.search_service import search_service
-from src.cli.views import render_trace_timeline
-from src.services.embedding_service import embedding_service
-
 console = Console()
+
 
 @registry.register(
     name="trace",
     description="Trace the chronological evolution of a concept.",
-    example='ct trace "Large Language Models" --threshold 0.8'
+    example='ct trace "Large Language Models" --threshold 0.8',
+    aliases=["t"]
 )
 def trace(concept: str, threshold: float = 0.85):
     """Trace the chronological evolution of a concept."""
+    try:
+        NoteTraceInteractor(concept=concept, threshold=threshold).run()
+    except ValueError as e:
+        console.print(Panel(f"[red]{e}[/red]", title="[bold]Error[/bold]", border_style="red"))
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(Panel(f"[red]Unexpected error:[/red] {e}", border_style="red"))
+        raise SystemExit(1)
 
-    console.print(f"[bold magenta]Tracing: {concept}[/bold magenta]")
-
-    # Use SSoT vector search; embedding is computed inside search_service.
-    
-    vec = embedding_service.get_embedding(concept)
-    similar_notes = search_service.vector_search(
-        embedding=vec,
-        limit=10,
-        threshold=threshold,
-    )
-    note_ids = [n["id"] for n in similar_notes]
-
-    # Load full Note objects sorted by creation date for chronological display.
-    notes = repos.notes.get_notes_by_ids(note_ids)
-
-    console.print(render_trace_timeline(concept, notes, note_ids, repos.links.get_links_by_source))

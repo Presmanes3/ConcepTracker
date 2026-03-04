@@ -13,6 +13,8 @@ class CommandMetadata:
     description: str
     example: str
     func: Callable
+    group: str = "Common Commands"
+    aliases: List[str] = field(default_factory=list)
     kwargs: Dict = field(default_factory=dict)
 
 
@@ -24,7 +26,7 @@ class CommandRegistry:
 
         from src.registry import command_registry
 
-        @command_registry.register(name="ls", description="...", example="ct ls")
+        @command_registry.register(name="ls", description="...", example="ct ls", aliases=["l"], group="Management")
         def ls(...): ...
 
     Usage (in main.py)::
@@ -41,7 +43,7 @@ class CommandRegistry:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def register(self, name: str, description: str, example: str, **kwargs):
+    def register(self, name: str, description: str, example: str, aliases: List[str] = None, group: str = "Common Commands", **kwargs):
         """Decorator that registers a function as a CLI command."""
         def decorator(func: Callable):
             self.commands.append(CommandMetadata(
@@ -49,6 +51,8 @@ class CommandRegistry:
                 description=description,
                 example=example,
                 func=func,
+                group=group,
+                aliases=aliases or [],
                 kwargs=kwargs,
             ))
             return func

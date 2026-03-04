@@ -15,7 +15,9 @@ console = Console()
 @registry.register(
     name="find",
     description="Semantic search through your knowledge.",
-    example='ct find "concepts about machine learning"'
+    example='ct find "concepts about machine learning"',
+    aliases=["f"],
+    group="Search & Discovery"
 )
 def find(
     query: str = typer.Argument(..., help="Semantic search query"),
@@ -31,3 +33,7 @@ def find(
         ).run()
     except ValueError as exc:
         console.print(Panel(str(exc), title="[bold]Error[/bold]", border_style="red"))
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(Panel(f"[red]Unexpected error:[/red] {e}", border_style="red"))
+        raise SystemExit(1)

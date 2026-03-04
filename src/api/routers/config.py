@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import get_bedrock_service, get_config_repo
-from src.api.schemas import ConfigResponse, ConfigUpdateRequest, ModelPricingSchema
+from shared.schemas.api.config import ConfigResponse, ConfigUpdateRequest, ModelPricingSchema
 
 router = APIRouter()
 
@@ -16,6 +16,10 @@ def _build_config_response(config_repo) -> ConfigResponse:
             for model_id, p in settings.pricing.items()
         },
         is_configured=config_repo.is_configured,
+        auto_pause_seconds=(
+            settings.transcription.auto_pause_seconds
+            if settings.transcription else 0
+        ),
     )
 
 

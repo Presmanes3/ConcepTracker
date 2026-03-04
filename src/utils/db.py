@@ -30,20 +30,28 @@ class DatabaseManager:
     def get_session(self):
         return Session(self.engine)
 
+    def reset_db(self):
+        """Drop all tables then recreate them. All data is lost."""
+        SQLModel.metadata.drop_all(self.engine)
+        self.init_db()
+
     def health_check(self):
         try:
             with self.engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            return True
+            return {"status": "healthy"}
         except Exception as e:
-            print(f"DB Health Check Failed: {e}")
-            return False
+            return {"status": "unhealthy", "message": str(e)}
 
 # Convenience global instance
 db_manager = DatabaseManager()
 
 def init_db():
     db_manager.init_db()
+
+def reset_db():
+    """Drop all tables and recreate them. All data will be lost."""
+    db_manager.reset_db()
 
 def get_session():
     return db_manager.get_session()

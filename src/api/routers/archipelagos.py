@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import get_arch_repo
-from src.api.schemas import ArchipelagoResponse
+from shared.schemas.api.archipelagos import ArchipelagoResponse
 
 router = APIRouter()
 

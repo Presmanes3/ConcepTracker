@@ -93,7 +93,7 @@ class AIEditor(Vertical):
 
     # ── Init ─────────────────────────────────────────────────────────────────
 
-    def __init__(self, original_text: str = "", id: str | None = None) -> None:
+    def __init__(self, original_text: str = "", id: str | None = None, auto_focus: bool = True) -> None:
         super().__init__(id=id)
         self._original_text = original_text
         self._result_text   = ""
@@ -101,6 +101,7 @@ class AIEditor(Vertical):
         self._spinner_frame = 0
         self._spinner_timer = None
         self._current_agent = ""
+        self._auto_focus    = auto_focus
 
     # ── Compose / lifecycle ──────────────────────────────────────────────────
 
@@ -119,7 +120,8 @@ class AIEditor(Vertical):
         self.query_one("#ai_result", VerticalScroll).border_title = "[bold dim]Result[/bold dim]"
         if self._original_text:
             self.set_original(self._original_text)
-        self.query_one("#ai_prompt", TextArea).focus()
+        if self._auto_focus:
+            self.query_one("#ai_prompt", TextArea).focus()
 
     def on_unmount(self) -> None:
         if self._spinner_timer:

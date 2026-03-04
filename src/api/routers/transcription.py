@@ -13,9 +13,15 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from src.agents.markdown_formatter_agent import MarkdownFormatterAgent
 from src.agents.normalizer_agent import NormalizerAgent
 from src.api.dependencies import get_transcription_repo
-from src.api.schemas import NoteIngestResponse, TranscriptionSaveRequest
+from shared.schemas.api.notes import NoteIngestResponse
+from shared.schemas.api.transcription import (
+    TranscriptionEnhanceRequest,
+    TranscriptionEnhanceResponse,
+    TranscriptionSaveRequest,
+)
 from src.repository.transcription_repository import transcription_repository
 from src.workflows.ingest_workflow import ingest_graph
+from src.workflows.transcription_workflow import transcription_workflow
 from shared.schemas.models.transcription import Transcription
 from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.workflow.transcription import TranscriptionEnhancementState
@@ -61,6 +67,39 @@ async def save_transcription(
         note_id=result.get("note_id"),
         action=result.get("action", "CREATE"),
         reasoning=result.get("reasoning"),
+    )
+
+
+# ── REST: enhance a transcription text with the AI pipeline ─────────────────────
+
+@router.post("/transcriptions/enhance", response_model=TranscriptionEnhanceResponse)
+async def enhance_transcription(body: TranscriptionEnhanceRequest) -> TranscriptionEnhanceResponse:
+    """Run the AI enhancement pipeline on raw transcription text and return the result."""
+    context_text = (
+        f"[USER INSTRUCTION: {body.user_prompt}]\n\n{body.raw_text}"
+        if body.user_prompt
+        else body.raw_text
+    )
+    initial = TranscriptionEnhancementState(
+        raw_text=body.raw_text,
+        current_text=context_text,
+        applied_layers=[],
+        action_items=None,
+        error=None,
+        user_prompt=body.user_prompt,
+    )
+    final: dict = await asyncio.to_thread(transcription_workflow.invoke, initial)  # type: ignore[arg-type]
+
+    if final.get("error"):
+        return TranscriptionEnhanceResponse(
+            enhanced_text=body.raw_text,
+            applied_layers=[],
+            error=final["error"],
+        )
+
+    return TranscriptionEnhanceResponse(
+        enhanced_text=final.get("current_text", body.raw_text),
+        applied_layers=final.get("applied_layers", []),
     )
 
 

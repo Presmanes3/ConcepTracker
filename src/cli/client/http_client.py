@@ -18,25 +18,26 @@ from typing import Any, List, Optional
 
 import httpx
 
-# Lazy import — shared schemas used only for type hints (avoids heavy deps at import time)
-from src.api.schemas import (
-    ArchipelagoResponse,
-    ConfigResponse,
-    ConfigUpdateRequest,
-    DeviceResponse,
-    DeviceSetRequest,
-    HealthResponse,
-    LinkConfirmRequest,
-    LinkResponse,
-    MessageResponse,
+# Shared schemas used for type hints and response validation
+from shared.schemas.api.notes import (
     NoteIngestRequest,
     NoteIngestResponse,
     NoteResponse,
-    SearchRequest,
-    SearchResponse,
-    StatsResponse,
+    NoteUpdateRequest,
+    NoteEnhanceRequest,
+)
+from shared.schemas.api.search import SearchRequest, SearchResponse
+from shared.schemas.api.links import LinkConfirmRequest, LinkResponse
+from shared.schemas.api.archipelagos import ArchipelagoResponse
+from shared.schemas.api.transcription import (
+    DeviceResponse,
+    DeviceSetRequest,
+    TranscriptionEnhanceRequest,
+    TranscriptionEnhanceResponse,
     TranscriptionSaveRequest,
 )
+from shared.schemas.api.config import ConfigResponse, ConfigUpdateRequest
+from shared.schemas.api.common import HealthResponse, MessageResponse, StatsResponse
 
 _DEFAULT_BASE_URL = "http://localhost:8000"
 _DEFAULT_TIMEOUT = 120.0  # seconds — ingest/search can be slow (LLM calls)
@@ -83,7 +84,9 @@ class ConcepTrackerClient:
 
     def run_init(self) -> MessageResponse:
         return MessageResponse.model_validate(self._post("/init"))
-
+    def reset_db(self) -> MessageResponse:
+        """Drop all tables and recreate them. All data will be lost."""
+        return MessageResponse.model_validate(self._post("/admin/reset-db"))
     # ── Notes ─────────────────────────────────────────────────────────────────
 
     def list_notes(
@@ -94,6 +97,13 @@ class ConcepTrackerClient:
 
     def get_note(self, note_id: int) -> NoteResponse:
         return NoteResponse.model_validate(self._get(f"/notes/{note_id}"))
+
+    def update_note(self, note_id: int, content: Optional[str] = None) -> NoteResponse:
+        """Update an existing note's content and trigger re-normalization."""
+        body = NoteUpdateRequest(content=content)
+        data = self._put(f"/notes/{note_id}", body=body.model_dump(exclude_none=True))
+        return NoteResponse.model_validate(data)
+
 
     def ingest_note(
         self,
@@ -135,6 +145,13 @@ class ConcepTrackerClient:
         body = SearchRequest(query=query, limit=limit)
         return SearchResponse.model_validate(
             self._post("/search", body.model_dump())
+        )
+
+    def enhance_note(self, note_id: int, user_instruction: str) -> NoteResponse:
+        """Trigger professional AI enhancement for an existing note."""
+        body = NoteEnhanceRequest(user_instruction=user_instruction)
+        return NoteResponse.model_validate(
+            self._post(f"/notes/{note_id}/enhance", body.model_dump())
         )
 
     # ── Archipelagos ──────────────────────────────────────────────────────────
@@ -180,6 +197,17 @@ class ConcepTrackerClient:
     def save_transcription(self, body: TranscriptionSaveRequest) -> NoteIngestResponse:
         return NoteIngestResponse.model_validate(
             self._post("/transcriptions", body.model_dump(exclude_none=True))
+        )
+
+    def enhance_transcription(
+        self,
+        raw_text: str,
+        user_prompt: Optional[str] = None,
+    ) -> TranscriptionEnhanceResponse:
+        """Run the server-side AI enhancement pipeline on raw transcription text."""
+        body = TranscriptionEnhanceRequest(raw_text=raw_text, user_prompt=user_prompt)
+        return TranscriptionEnhanceResponse.model_validate(
+            self._post("/transcriptions/enhance", body.model_dump(exclude_none=True))
         )
 
     def close(self):

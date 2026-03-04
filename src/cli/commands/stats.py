@@ -1,10 +1,13 @@
+﻿"""stats command â€” analyze AI usage costs and performance."""
 import typer
 from rich.console import Console
+from rich.panel import Panel
+
+from src.cli.interactors.stats_interactor import StatsInteractor
 from src.cli.registry import registry
-from src.services.cost_service import cost_service
-from src.cli.views import render_stats_dashboard
 
 console = Console()
+
 
 @registry.register(
     name="stats",
@@ -13,21 +16,15 @@ console = Console()
 )
 def stats(
     days: int = typer.Option(0, "--days", "-d", help="Filter by last N days"),
-    hours: int = typer.Option(0, "--hours", "-hr", help="Filter by last N hours")
+    hours: int = typer.Option(0, "--hours", "-hr", help="Filter by last N hours"),
 ):
-    """
-    Explore Inference performance and costs.
-    """
-    
-    
-    # UX degradation if no pricing is found
-    if not cost_service.is_configured:
-        with console.status("[yellow]Calculating token usage...[/yellow]"):
-            results = cost_service.get_stats(days=days, hours=hours)
-        console.print(render_stats_dashboard(results, False, days, hours))
-        return
+    """Explore inference performance and costs."""
+    try:
+        StatsInteractor(days=days, hours=hours).run()
+    except ValueError as e:
+        console.print(Panel(f"[red]{e}[/red]", title="[bold]Error[/bold]", border_style="red"))
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(Panel(f"[red]Unexpected error:[/red] {e}", border_style="red"))
+        raise SystemExit(1)
 
-    with console.status("[yellow]Calculating costs...[/yellow]"):
-        results = cost_service.get_stats(days=days, hours=hours)
-
-    console.print(render_stats_dashboard(results, True, days, hours))

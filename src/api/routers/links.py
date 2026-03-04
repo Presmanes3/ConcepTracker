@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import get_link_repo, get_note_repo
-from src.api.schemas import LinkResponse
+from shared.schemas.api.links import LinkResponse
 
 router = APIRouter()
 

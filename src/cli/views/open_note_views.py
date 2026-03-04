@@ -66,6 +66,7 @@ def open_note_edit_footer() -> Panel:
     Footer for the open_note screen — edit mode.
     """
     actions = [
+        ("[Ctrl+\u2190/\u2192]", "Jump Menu/Edit", "magenta"),
         ("Ctrl+S", "Save edit", "green"),
         ("Esc",    "Cancel",    "yellow"),
     ]
@@ -77,9 +78,22 @@ def open_note_ai_footer() -> Panel:
     Footer for the open_note screen — AI enhance mode.
     """
     actions = [
+        ("[Ctrl+\u2190/\u2192]", "Jump Menu/AI",   "magenta"),
         ("Ctrl+R", "Run AI",  "cyan"),
         ("Ctrl+A", "Accept",  "green"),
         ("Esc",    "Cancel",  "yellow"),
+    ]
+    return render_footer(actions, border=True, border_style="dim")
+
+
+def open_note_trace_footer() -> Panel:
+    """
+    Footer for the open_note screen — Trace mode.
+    """
+    actions = [
+        ("\u2190/\u2192", "Menu/Trace", "magenta"),
+        ("\u25b2/\u25bc", "Nav Context", "yellow"),
+        ("Esc",   "Exit Trace", "yellow"),
     ]
     return render_footer(actions, border=True, border_style="dim")
 

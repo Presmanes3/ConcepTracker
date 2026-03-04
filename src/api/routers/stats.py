@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from src.api.dependencies import get_cost_service
-from src.api.schemas import StatsResponse
+from shared.schemas.api.common import StatsResponse
 
 router = APIRouter()
 

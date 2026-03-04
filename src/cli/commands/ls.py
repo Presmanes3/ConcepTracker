@@ -17,6 +17,8 @@ console = Console()
     name="ls",
     description="List all notes in a clean table.",
     example="ct ls --tag AI --archipelago 'Machine Learning'",
+    aliases=["l"],
+    group="Search & Discovery"
 )
 def ls(
     tag: str = typer.Option(None, "--tag", "-t", help="Filter by tag"),
@@ -34,3 +36,7 @@ def ls(
         ).run()
     except ValueError as exc:
         console.print(Panel(str(exc), title="[bold]Error[/bold]", border_style="red"))
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(Panel(f"[red]Unexpected error:[/red] {e}", border_style="red"))
+        raise SystemExit(1)

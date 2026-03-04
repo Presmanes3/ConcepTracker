@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 
 from src.api.dependencies import get_service_registry
-from src.api.schemas import HealthResponse, ServiceStatus
+from shared.schemas.api.common import HealthResponse, ServiceStatus
 
 router = APIRouter()
 

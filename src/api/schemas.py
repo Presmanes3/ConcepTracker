@@ -45,6 +45,12 @@ class NoteResponse(BaseModel):
     archipelago_id: Optional[int] = None
 
 
+class NoteUpdateRequest(BaseModel):
+    content: Optional[str] = Field(None, description="Updated note content.")
+    summary: Optional[str] = Field(None, description="Updated note summary.")
+    tags: Optional[str] = Field(None, description="Updated note tags.")
+
+
 class NoteListResponse(BaseModel):
     notes: List[NoteResponse]
     total: int
@@ -122,6 +128,7 @@ class ConfigResponse(BaseModel):
     active_model_id: str
     pricing: Dict[str, ModelPricingSchema]
     is_configured: bool
+    auto_pause_seconds: int = 0
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -164,6 +171,17 @@ class TranscriptionSaveRequest(BaseModel):
     duration_seconds: Optional[float] = None
     applied_enhancements: Optional[str] = None
     ingest: bool = Field(True, description="Run ingest pipeline on the transcription content.")
+
+
+class TranscriptionEnhanceRequest(BaseModel):
+    raw_text: str = Field(..., description="Raw transcription text to enhance.")
+    user_prompt: Optional[str] = Field(None, description="Optional user instruction to guide enhancement.")
+
+
+class TranscriptionEnhanceResponse(BaseModel):
+    enhanced_text: str
+    applied_layers: List[str]
+    error: Optional[str] = None
 
 
 # ── Generic ───────────────────────────────────────────────────────────────────

@@ -5,17 +5,23 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.api.dependencies import get_note_repo, get_link_repo
-from src.api.schemas import (
-    LinkConfirmRequest,
-    MessageResponse,
+from shared.schemas.api.notes import (
     NearMissCandidate,
     NoteIngestRequest,
     NoteIngestResponse,
     NoteResponse,
+    NoteUpdateRequest,
+    NoteEnhanceRequest,
 )
+from shared.schemas.api.links import LinkConfirmRequest
+from shared.schemas.api.common import MessageResponse
+from shared.schemas.models.note import Note
 from shared.schemas.models.link import Link
+
 from shared.schemas.workflow.ingest import IngestState
-from src.workflows.ingest_workflow import ingest_graph
+from shared.schemas.workflow.enhancement import EnhancementState
+from src.workflows.ingest_workflow import ingest_graph, run_normalize
+from src.workflows.enhancement_workflow import enhancement_graph
 
 router = APIRouter()
 
@@ -55,6 +61,43 @@ def get_note(note_id: int, note_repo=Depends(get_note_repo)):
     return _to_note_response(note)
 
 
+# ── Update note ───────────────────────────────────────────────────────────────
+
+@router.put("/notes/{note_id}", response_model=NoteResponse)
+async def update_note(
+    note_id: int,
+    body: NoteUpdateRequest,
+    note_repo=Depends(get_note_repo),
+):
+    note = note_repo.get_note_by_id(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Note {note_id} not found.")
+
+    # 1. Run normalization + classification via the partial workflow (Regla 8)
+    # This generates fresh summary, tags, embeddings and taxonomy if content changed.
+    content_to_process = body.content if body.content is not None else note.content
+    
+    # run_normalize is synchronous, we run it in a thread to not block the event loop
+    result: dict = await asyncio.to_thread(run_normalize, content_to_process, note_id)
+    
+    # 2. Persist all changes (editable + AI-generated)
+    taxonomy = result.get("taxonomy")
+    updated_note = note_repo.update_note(
+        note_id=note_id,
+        content=body.content,
+        summary=result.get("summary"),
+        tags=result.get("tags"),
+        embedding=result.get("embedding"),
+        domain=taxonomy.domain if taxonomy else None,
+        domain_family=taxonomy.domain_family if taxonomy else None,
+    )
+    
+    if not updated_note:
+         raise HTTPException(status_code=500, detail="Failed to update note.")
+
+    return _to_note_response(updated_note)
+
+
 # ── Delete note ───────────────────────────────────────────────────────────────
 
 @router.delete("/notes/{note_id}", response_model=MessageResponse)
@@ -64,7 +107,43 @@ def delete_note(note_id: int, note_repo=Depends(get_note_repo), link_repo=Depend
     deleted = note_repo.delete_note(note_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Note {note_id} not found.")
-    return MessageResponse(message=f"Note {note_id} deleted.")
+    return MessageResponse(message=f"Note {note_id} deleted.", detail=None)
+
+
+# ── AI Professional Enhancement ───────────────────────────────────────────────
+
+@router.post("/notes/{note_id}/enhance", response_model=NoteResponse)
+def enhance_note(note_id: int, body: NoteEnhanceRequest, note_repo=Depends(get_note_repo)):
+    """Trigger professional AI enhancement for a note."""
+    note = note_repo.get_note_by_id(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Note {note_id} not found.")
+
+    # 1. Prepare workflow state
+    state = EnhancementState(
+        note_id=note_id,
+        current_content=note.content,
+        user_instruction=body.user_instruction
+    )
+
+    # 2. Run the enhancement workflow
+    # This invokes a professional cleanup/RAG process
+    try:
+        final_state = enhancement_graph.invoke(state)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Enhancement workflow failed: {str(e)}")
+
+    # 3. Update the note with the professional result
+    updated_note = note_repo.update_note(
+        note_id=note_id,
+        content=final_state["enhanced_content"],
+        # Tags could also be updated here if the workflow suggested them
+    )
+    
+    if not updated_note:
+         raise HTTPException(status_code=500, detail="Failed to save enhanced note.")
+
+    return _to_note_response(updated_note)
 
 
 # ── Phase 1 ingest: run pipeline, return near-miss candidates ─────────────────
@@ -124,4 +203,4 @@ def confirm_links(
         link_repo.save_link(link)
         saved += 1
 
-    return MessageResponse(message=f"Saved {saved} link(s) for note {note_id}.")
+    return MessageResponse(message=f"Saved {saved} link(s) for note {note_id}.", detail=None)

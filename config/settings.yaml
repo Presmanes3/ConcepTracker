@@ -5,6 +5,13 @@ pricing:
   eu.amazon.nova-micro-v1:0:
     input: 0.035
     output: 0.14
+search:
+  expansion_count: 2
+  language: simple
+  rerank_top_n: 10
+  reranker_model: cohere.rerank-v3-5:0
+  rrf_k: 60
+  top_k_before_rerank: 30
 services:
   bedrock: true
   database: true

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 
 from src.api.dependencies import get_service_registry
-from src.api.schemas import MessageResponse
+from shared.schemas.api.common import MessageResponse
 from src.utils.db import init_db
 
 router = APIRouter()

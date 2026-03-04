@@ -1,9 +1,12 @@
+"""init command — initialise database and all registered services."""
 from rich.console import Console
+from rich.panel import Panel
+
+from src.cli.interactors.init_interactor import InitInteractor
 from src.cli.registry import registry
 
-from src.services import service_registry
-
 console = Console()
+
 
 @registry.register(
     name="init",
@@ -12,20 +15,11 @@ console = Console()
 )
 def init():
     """Build the brain. Initialize database and pgvector extension."""
-
-    
-    console.print("[yellow]Initializing services...[/yellow]")
-    
-    active_services = service_registry.get_active_services()
-    
-    for name, data in active_services.items():
-        init_func = data.get("init")
-        if init_func:
-            console.print(f"[yellow]Initializing {name}...[/yellow]")
-            try:
-                init_func()
-                console.print(f"[green]Success! {name} initialized.[/green]")
-            except Exception as e:
-                console.print(f"[red]Critical Error initializing {name}: {e}[/red]")
-                
-    console.print("[green]Initialization complete.[/green]")
+    try:
+        InitInteractor().run()
+    except ValueError as e:
+        console.print(Panel(f"[red]{e}[/red]", title="[bold]Error[/bold]", border_style="red"))
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(Panel(f"[red]Unexpected error:[/red] {e}", border_style="red"))
+        raise SystemExit(1)

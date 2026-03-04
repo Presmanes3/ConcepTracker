@@ -1,3 +1,4 @@
+"""Full ingest pipeline: normalize → classify → search → gatekeeper → save → link → detect geography."""
 from langgraph.graph import StateGraph, START, END
 
 # Core Schemas
@@ -28,27 +29,44 @@ from src.utils.embeddings import DISTANCE_DEDUP_CUTOFF, DISTANCE_LINKING_CUTOFF
 from src.utils.link_confidence import compute_link_confidence, SEND_TO_LLM_LOW
 from src.utils.rrf import rrf_fuse
 from src.services.search_service import search_service
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ── Module-level agent singletons ─────────────────────────────────────────────────
+_normalizer = NormalizerAgent()
+_taxonomy = ConceptTaxonomyAgent()
+_gatekeeper = GatekeeperAgent()
+_linker = BidirectionalLinkerAgent()
 
 
 def normalize_and_embed(state: IngestState):
-    """Nodo 1: Ingest Agent - Limpia y genera Embeddings + Summary."""
-    agent = NormalizerAgent()
-    update = agent.run(state)
+    """Node 1: Ingest Agent - Clean and generate Embeddings + Summary."""
+    logger.info("--- [ingest_workflow] node: normalize_and_embed ---")
+    update = _normalizer.run(state)
     
     # Embedding still shared via service (Singleton)
     vector = embedding_service.get_embedding(update["content"])
     update["embedding"] = vector
     
+    logger.debug(f"[normalize_and_embed] summary length: {len(update.get('summary', ''))}")
     return update
 
 def classify_concept(state: IngestState):
     """Node 1b: Extract semantic taxonomy before retrieval (domain, concept_type, is_component_of)."""
-    agent = ConceptTaxonomyAgent()
-    return agent.run(state)
+    logger.info("--- [ingest_workflow] node: classify_concept ---")
+    result = _taxonomy.run(state)
+    
+    if result.get("taxonomy"):
+        tax = result["taxonomy"]
+        logger.debug(f"[classify_concept] domain: {tax.domain}, type: {tax.concept_type}")
+    
+    return result
 
 
 def search_before_save(state: IngestState):
     """Find similar notes before committing to DB."""
+    logger.info("--- [ingest_workflow] node: search_before_save ---")
     raw_similar = note_repository.get_similar_notes(
         current_id=None,
         embedding=state.embedding,
@@ -57,15 +75,19 @@ def search_before_save(state: IngestState):
     )
     # Only near-identical concepts reach the Gatekeeper
     filtered = [n for n in raw_similar if n.get("distance", 1.0) < DISTANCE_DEDUP_CUTOFF]
+    logger.debug(f"[search_before_save] found {len(raw_similar)} similar, filtered to {len(filtered)} candidates")
     return {"similar_notes": filtered}
 
 def gatekeeper_decision(state: IngestState):
     """Decide if it is a new note, a merge, or a duplicate."""
-    agent = GatekeeperAgent()
-    return agent.run(state)
+    logger.info("--- [ingest_workflow] node: gatekeeper ---")
+    result = _gatekeeper.run(state)
+    logger.info(f"[gatekeeper] decision: {result.get('action')}, reasoning: {result.get('reasoning')}")
+    return result
 
 def update_existing_note(state: IngestState):
     """Updates an existing note instead of creating a new one."""
+    logger.info(f"--- [ingest_workflow] node: update_existing_note (ID: {state.note_id}) ---")
     note_repository.update_note(
         note_id=state.note_id, 
         summary=state.summary 
@@ -74,7 +96,8 @@ def update_existing_note(state: IngestState):
     return {"note_id": state.note_id}
 
 def save_note_to_db(state: IngestState):
-    """Nodo Ingest: Guarda en Postgres."""
+    """Ingest Node: Save to Postgres."""
+    logger.info("--- [ingest_workflow] node: save_note_to_db ---")
     taxonomy = state.taxonomy
     new_note = Note(
         content=state.content,
@@ -85,20 +108,11 @@ def save_note_to_db(state: IngestState):
         domain_family=taxonomy.domain_family if taxonomy else None,
     )
     saved_note = note_repository.save_note(new_note)
+    logger.info(f"[save_note_to_db] saved new note ID: {saved_note.id}")
     return {"note_id": saved_note.id}
 
 def search_related_for_linking(state: IngestState):
-    """
-    Hybrid linking candidate pool: vector + BM25 + RRF fusion.
-
-    Replaces the old vector-only get_similar_notes call with the full hybrid
-    search pipeline so BM25 lexical signal boosts same-domain candidates.
-
-    Temporal notes (recent) are only included when they are either:
-      • semantically close (distance < TEMPORAL_MAX_DISTANCE), OR
-      • sharing the same domain_family as the new note.
-    This prevents spurious cross-domain links from the temporal heuristic.
-    """
+    logger.info(f"--- [ingest_workflow] node: search_related_for_linking (ID: {state.note_id}) ---")
     # Recent notes beyond this cosine distance also need domain_family match
     TEMPORAL_MAX_DISTANCE = 0.70
 
@@ -115,11 +129,13 @@ def search_related_for_linking(state: IngestState):
         exclude_id=state.note_id,
     )
 
-    # Distance lookup map (used later for temporal filtering)
-    distance_by_id = {n["id"]: n["distance"] for n in vector_candidates}
+    # Build distance lookup so BM25-only hits can be enriched with a vector score.
+    distance_by_id = {item["id"]: item.get("distance", 1.0) for item in vector_candidates}
 
     # Fuse; first-seen item dict carries its original fields
     fused = rrf_fuse(bm25_candidates, vector_candidates, id_key="id")
+
+    logger.debug(f"[search_links] vector: {len(vector_candidates)}, bm25: {len(bm25_candidates)}, fused: {len(fused)}")
 
     # Ensure every fused item has a `distance` field.
     # BM25-only hits (no vector match) get a conservative Moderate-tier estimate.
@@ -164,8 +180,7 @@ def search_related_for_linking(state: IngestState):
 
 def match_relations_bidirectional(state: IngestState):
     """Confidence-first bidirectional linker: one LLM call for both directions."""
-    agent = BidirectionalLinkerAgent()
-    return agent.run(state)
+    return _linker.run(state)
 
 
 def save_all_links(state: IngestState):
@@ -225,44 +240,69 @@ def detect_archipelago(state: IngestState):
         "archipelago_summary": geo_result.get("proposed_arch_summary"),
     }
 
-# Router for the Gatekeeper
-def gatekeeper_router(state: IngestState):
+# ── Conditional router ──────────────────────────────────────────────────────────────────
+
+def _route_after_gatekeeper(state: IngestState) -> str:
+    """Return CREATE, MERGE, or SKIP based on the gatekeeper decision."""
     return state.action
 
-# Define the Graph
-workflow = StateGraph(IngestState)
-workflow.add_node("normalize", normalize_and_embed)
-workflow.add_node("classify_concept", classify_concept)
-workflow.add_node("search_pre", search_before_save)
-workflow.add_node("gatekeeper", gatekeeper_decision)
-workflow.add_node("save_note", save_note_to_db)
-workflow.add_node("update_note", update_existing_note)
-workflow.add_node("search_links", search_related_for_linking)
-workflow.add_node("match_relations", match_relations_bidirectional)
-workflow.add_node("save_links", save_all_links)
-workflow.add_node("detect_archipelago", detect_archipelago)
 
-# Wiring
-workflow.add_edge(START, "normalize")
-workflow.add_edge("normalize", "classify_concept")
-workflow.add_edge("classify_concept", "search_pre")
-workflow.add_edge("search_pre", "gatekeeper")
+# ── Graph assembly ──────────────────────────────────────────────────────────────────
 
-workflow.add_conditional_edges(
+_graph = StateGraph(IngestState)
+_graph.add_node("normalize", normalize_and_embed)
+_graph.add_node("classify_concept", classify_concept)
+_graph.add_node("search_pre", search_before_save)
+_graph.add_node("gatekeeper", gatekeeper_decision)
+_graph.add_node("save_note", save_note_to_db)
+_graph.add_node("update_note", update_existing_note)
+_graph.add_node("search_links", search_related_for_linking)
+_graph.add_node("match_relations", match_relations_bidirectional)
+_graph.add_node("save_links", save_all_links)
+_graph.add_node("detect_archipelago", detect_archipelago)
+
+_graph.add_edge(START, "normalize")
+_graph.add_edge("normalize", "classify_concept")
+_graph.add_edge("classify_concept", "search_pre")
+_graph.add_edge("search_pre", "gatekeeper")
+
+_graph.add_conditional_edges(
     "gatekeeper",
-    gatekeeper_router,
+    _route_after_gatekeeper,
     {
         "CREATE": "save_note",
         "MERGE": "update_note",
-        "SKIP": END
-    }
+        "SKIP": END,
+    },
 )
 
-workflow.add_edge("save_note", "search_links")
-workflow.add_edge("search_links", "match_relations")
-workflow.add_edge("match_relations", "save_links")
-workflow.add_edge("save_links", "detect_archipelago")
-workflow.add_edge("detect_archipelago", END)
-workflow.add_edge("update_note", END)
+_graph.add_edge("save_note", "search_links")
+_graph.add_edge("search_links", "match_relations")
+_graph.add_edge("match_relations", "save_links")
+_graph.add_edge("save_links", "detect_archipelago")
+_graph.add_edge("detect_archipelago", END)
+_graph.add_edge("update_note", END)
 
-ingest_graph = workflow.compile()
+ingest_graph = _graph.compile()
+
+
+# ── Partial re-normalisation graph (used by PUT /notes endpoint) ───────────────────
+
+_normalize_builder = StateGraph(IngestState)
+_normalize_builder.add_node("normalize", normalize_and_embed)
+_normalize_builder.add_node("classify_concept", classify_concept)
+_normalize_builder.add_edge(START, "normalize")
+_normalize_builder.add_edge("normalize", "classify_concept")
+_normalize_builder.add_edge("classify_concept", END)
+_normalize_graph = _normalize_builder.compile()
+
+
+def run_normalize(content: str, note_id: int | None = None) -> dict:
+    """Run normalize → classify for content re-processing without full ingest.
+
+    Invoke when updating an existing note's content; produces a fresh summary,
+    tags, embedding, domain, and domain_family without triggering the gatekeeper,
+    link detection, or geography sub-workflow.
+    """
+    state = IngestState(content=content, note_id=note_id)
+    return _normalize_graph.invoke(state)

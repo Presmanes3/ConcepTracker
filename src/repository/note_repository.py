@@ -25,8 +25,17 @@ class NoteRepository:
             session.refresh(note)
             return note
 
-    def update_note(self, note_id: int, content: Optional[str] = None, summary: Optional[str] = None, tags: Optional[str] = None) -> Optional[Note]:
-        """Updates an existing note's editable fields."""
+    def update_note(
+        self,
+        note_id: int,
+        content: Optional[str] = None,
+        summary: Optional[str] = None,
+        tags: Optional[str] = None,
+        embedding: Optional[List[float]] = None,
+        domain: Optional[str] = None,
+        domain_family: Optional[str] = None,
+    ) -> Optional[Note]:
+        """Updates an existing note's editable and AI-generated fields."""
         with get_session() as session:
             note = session.get(Note, note_id)
             if not note:
@@ -37,6 +46,12 @@ class NoteRepository:
                 note.summary = summary
             if tags is not None:
                 note.tags = tags
+            if embedding is not None:
+                note.embedding = embedding
+            if domain is not None:
+                note.domain = domain
+            if domain_family is not None:
+                note.domain_family = domain_family
             session.add(note)
             session.commit()
             session.refresh(note)

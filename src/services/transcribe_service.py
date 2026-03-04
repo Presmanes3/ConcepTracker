@@ -39,15 +39,25 @@ class TranscribeService:
         session = boto3.Session(**session_kwargs)
         self.client = session.client("transcribe")
 
-    def health_check(self) -> bool:
+    def health_check(self) -> dict:
         """Check if the Transcribe service is accessible."""
         try:
             # A simple call to list transcription jobs to verify connectivity and permissions
             self.client.list_transcription_jobs(MaxResults=1)
-            return True
+            return {"status": "healthy"}
         except Exception as e:
-            print(f"Transcribe Health Check Failed: {e}")
-            return False
+            error_msg = str(e)
+            if "MissingRegionError" in error_msg:
+                hint = "AWS_REGION is missing."
+            elif "NoCredentialsError" in error_msg:
+                hint = "AWS credentials not found."
+            elif "InvalidClientTokenId" in error_msg:
+                hint = "Invalid AWS Access Key."
+            elif "SignatureDoesNotMatch" in error_msg:
+                hint = "Invalid AWS Secret Key."
+            else:
+                hint = error_msg
+            return {"status": "unhealthy", "message": hint}
 
 # Export a singleton instance
 transcribe_service = TranscribeService()

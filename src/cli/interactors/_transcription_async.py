@@ -160,6 +160,27 @@ async def start_transcription(device_id: int, state: dict) -> None:
         console,
         initial_duration=state.get("duration", 0.0),
     )
+
+    # Initialize Sidebar Strategy
+    from src.cli.screens.transcription_actions import TranscriptionAction
+    screen.set_actions([
+        TranscriptionAction(
+            label="Pause",
+            enter=lambda: screen._pause(),
+            hint_text="Pause recording and show menu.",
+        ),
+        TranscriptionAction(
+            label="Save",
+            enter=lambda: screen.app.exit(result="save"),
+            hint_text="Finish and save transcription.",
+        ),
+        TranscriptionAction(
+            label="Discard",
+            enter=lambda: screen.app.exit(result="discard"),
+            hint_text="Exit without saving.",
+        ),
+    ])
+
     screen._stream_dead = False
     # Pre-populate with any existing transcript from a previous segment
     for segment in state.get("transcript", []):
