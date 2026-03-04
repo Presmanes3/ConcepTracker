@@ -8,10 +8,24 @@ ConcepTracker is a CLI-first personal knowledge management system that organizes
 
 The system turns free-form text input into a structured, queryable knowledge base without manual tagging or organization. Notes are the primary unit; relationships and geographic clusters emerge automatically from the content.
 
-- A note is normalized and embedded on ingestion. Near-duplicate notes are detected before saving via cosine similarity on pgvector.
-- An LLM-based Gatekeeper decides whether the input is new (`CREATE`), redundant (`SKIP`), or a refinement of an existing note (`MERGE`).
-- A `BidirectionalLinkerAgent` classifies semantic relationships (`REINFORCES`, `CONTRADICTS`, `RELATES`) between the new note and its neighbours in a single LLM call, handling both forward and backward directions simultaneously.
-- A geographic clustering sub-workflow groups semantically cohesive notes into Archipelagos, and Archipelagos into Continents, using rule-based routing and GeoNamerAgent.
+**Ingestion pipeline (`ct add`, `POST /notes`)**
+
+- Raw text is cleaned and summarized by `NormalizerAgent`, then classified into a semantic domain by `ConceptTaxonomyAgent` before any database lookup occurs.
+- Near-duplicate notes are detected via cosine similarity on pgvector. `GatekeeperAgent` decides `CREATE`, `MERGE`, or `SKIP` using the domain taxonomy as a hard guard against false deduplication.
+- `BidirectionalLinkerAgent` classifies forward and backward semantic relationships (`REINFORCES`, `CONTRADICTS`, `RELATES`) in a single LLM call, using pre-computed multi-signal confidence scores to auto-link high-confidence pairs without any LLM cost.
+- A geographic sub-workflow groups linked notes into Archipelagos (clusters) and Continents (meta-clusters) using rule-based routing and `GeoNamerAgent` (Nova Micro only).
+
+**Search (`ct find`, `POST /search`)**
+
+- `QueryExpansionAgent` generates alternative phrasings, then both vector and BM25 results are fused with Reciprocal Rank Fusion and reranked by Cohere Rerank v3.5.
+
+**Transcription (`ct listen`)**
+
+- Real-time audio is streamed to Amazon Transcribe via WebSocket. Raw output passes through a configurable enhancement pipeline (`SpeechCleanerAgent` → `MarkdownFormatterAgent`) before the user confirms ingestion.
+
+**Enhancement (`ct show` → AI action)**
+
+- Any existing note can be refactored with a natural language instruction via `POST /notes/{id}/enhance`, which retrieves related notes via vector search and applies them as RAG context.
 
 ---
 
@@ -57,27 +71,33 @@ ct init
 ## Usage
 
 ```bash
-# Add a note
-ct add "RAG with GraphRAG improves global context via knowledge graphs" --tag "AI"
+# ── Setup ──────────────────────────────────────────────────────────────────
+ct auth                                    # configure AWS credentials
+ct init                                    # create database schema and init services
+ct health                                  # verify DB and AI connectivity
 
-# List notes
-ct ls
+# ── Notes ──────────────────────────────────────────────────────────────────
+ct add "RAG with GraphRAG improves recall" --tag "AI"   # ingest a note
+ct ls                                      # list recent notes (paginated)
+ct ls --tag AI --archipelago "Machine Learning"         # filter by tag or cluster
+ct show 42                                 # open a note in the TUI
+ct rm 42                                   # remove a note and its links
 
-# Semantic search
-ct find "retrieval augmented generation"
+# ── Search & Discovery ─────────────────────────────────────────────────────
+ct find "retrieval augmented generation"   # semantic search
+ct trace "retrieval augmented generation" # trace concept evolution over time
 
-# Trace concept evolution
-ct trace "retrieval augmented generation"
+# ── Transcription ──────────────────────────────────────────────────────────
+ct devices                                 # list and select audio input device
+ct listen                                  # start real-time transcription session
 
-# Open a note in the TUI
-ct show 42
-
-# Start a real-time transcription session
-ct listen
-
-# View AI cost statistics
-ct stats --days 7
+# ── Configuration & Admin ──────────────────────────────────────────────────
+ct config --list                           # show active model and pricing
+ct stats --days 7                          # view AI usage and cost analytics
+ct reset-db                                # drop and recreate all tables (destructive)
 ```
+
+Run `ct help` for the full command dashboard.
 
 ---
 
@@ -118,5 +138,3 @@ config/
 ## Roadmap
 
 See [TODO.md](TODO.md) for the current implementation status.
-
-Planned work includes: web/PDF ingestion, spaced repetition reviews, multi-hop graph traversal, and a conversational Q&A mode grounded in local notes.
