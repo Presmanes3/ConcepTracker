@@ -105,9 +105,10 @@ class RecordingScreen(AppScreen):
     def _load_auto_pause(self) -> None:
         """Read auto_pause_seconds from config and start the one-shot timer."""
         try:
-            from src.repository.config_repository import config_repository
-            settings = config_repository.get_settings()
-            ap = settings.transcription.auto_pause_seconds if settings.transcription else 0
+            from src.cli.client.http_client import ConcepTrackerClient
+            with ConcepTrackerClient() as client:
+                config = client.get_config()
+            ap = config.auto_pause_seconds
         except Exception:
             ap = 0
         self._auto_pause_seconds = ap or 0

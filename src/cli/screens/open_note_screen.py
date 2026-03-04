@@ -12,10 +12,12 @@ from rich.table import Table
 from rich.text import Text
 
 from src.cli.screen import AppScreen, SCREEN_EXIT, ScreenSignal
+from src.cli.client.http_client import ConcepTrackerClient
 from src.cli.components.ai_editor import AIEditor
 from src.cli.components.editor import MarkdownEditor
 from src.cli.views.link_views import link_table_view
-from src.cli.views.open_note_views import open_note_actions_panel, open_note_ai_footer, open_note_edit_footer
+from src.cli.views.open_note_views import open_note_actions_panel, open_note_ai_footer, open_note_delete_footer, open_note_delete_hint_panel, open_note_edit_footer
+from src.cli.views.rm_views import render_delete_confirmation
 
 console = Console()
 
@@ -39,10 +41,81 @@ class OpenNoteScreen(AppScreen):
     alternate_screen = True
 
     BINDINGS = [
-        Binding("ctrl+c", "quit_screen", "Quit",   priority=True, show=False),
-        Binding("ctrl+r", "run_ai",      "Run AI",  priority=True, show=False),
-        Binding("ctrl+a", "accept_ai",   "Accept",  priority=True, show=False),
+        Binding("ctrl+r", "run_ai",    "Run AI", priority=True, show=False),
+        Binding("ctrl+a", "accept_ai", "Accept", priority=True, show=False),
+        Binding("up",    "nav_up",    "Up",      show=False),
+        Binding("down",  "nav_down",  "Down",    show=False),
+        Binding("k",     "nav_up",    "Up",      show=False),
+        Binding("j",     "nav_down",  "Down",    show=False),
+        Binding("space", "interact",  "Interact", show=False),
+        Binding("enter", "select",    "Select",  show=False),
+        Binding("escape","back",      "Back",    priority=True, show=False),
     ]
+
+    async def action_quit_screen(self) -> None:
+        """Ctrl+C — always exit, no matter the mode."""
+        if self._mode == "edit":
+            self._leave_note_edit()
+        if self._mode == "ai":
+            self._leave_ai_enhance()
+        await self.process_signal(SCREEN_EXIT)
+
+    async def action_back(self) -> None:
+        """Escape — situational back/exit behavior."""
+        if self._mode == "edit":
+            self._leave_note_edit()
+        elif self._mode == "ai":
+            self._leave_ai_enhance()
+        elif self._mode == "delete_confirm":
+            self._leave_delete_confirm()
+        else:
+            await self.process_signal(SCREEN_EXIT)
+
+    async def action_nav_up(self) -> None:
+        if self._mode != "read": return
+        if self.focus_zone == _ZONE_MENU:
+            if self.menu_index > 0:
+                self.menu_index -= 1
+            else:
+                self.focus_zone = _ZONE_MIDDLE
+        else:
+            self._focus_prev()
+
+    async def action_nav_down(self) -> None:
+        if self._mode != "read": return
+        if self.focus_zone == _ZONE_MENU:
+            if self.menu_index < len(self.menu_items) - 1:
+                self.menu_index += 1
+            else:
+                self.focus_zone = _ZONE_TOP
+        else:
+            self._focus_next()
+
+    async def action_interact(self) -> None:
+        """Space — expand/collapse or select menu item."""
+        if self._mode != "read": return
+        sig = self._handle_space()
+        if sig:
+            await self.process_signal(sig)
+
+    async def action_select(self) -> None:
+        """Enter — confirm deletion or select menu item."""
+        if self._mode == "delete_confirm":
+            sig = await self._execute_delete()
+            if sig: await self.process_signal(sig)
+            return
+
+        if self._mode == "read" and self.focus_zone == _ZONE_MENU and self.menu_items:
+            label, callback = self.menu_items[self.menu_index]
+            if label == "Edit Note":
+                self._enter_note_edit()
+            elif label == "AI":
+                self._enter_ai_enhance()
+            elif label == "Delete":
+                self._enter_delete_confirm()
+            else:
+                sig = callback()
+                if sig: await self.process_signal(sig)
 
     def action_run_ai(self) -> None:
         """Ctrl+R — submit the AI prompt (only active in ai mode)."""
@@ -156,6 +229,16 @@ class OpenNoteScreen(AppScreen):
                 renderable = open_note_edit_footer()
             elif self._mode == "ai":
                 renderable = open_note_ai_footer()
+            elif self._mode == "delete_confirm":
+                renderable = open_note_delete_footer()
+            elif (
+                self._mode == "read"
+                and self.focus_zone == _ZONE_MENU
+                and self.menu_items
+                and self.menu_index < len(self.menu_items)
+                and self.menu_items[self.menu_index][0] == "Delete"
+            ):
+                renderable = open_note_delete_hint_panel()
             else:
                 renderable = open_note_actions_panel()
             self.query_one("#footer", Static).update(renderable)
@@ -181,6 +264,7 @@ class OpenNoteScreen(AppScreen):
                 self.query_one("#content_panel", Static).update(self._render_content())
             except Exception:
                 pass
+        self._refresh_footer()
     # ------------------------------------------------------------------ #
     #  AI enhance lifecycle                                                #
     # ------------------------------------------------------------------ #
@@ -224,42 +308,22 @@ class OpenNoteScreen(AppScreen):
         self._note.content = message.result
         self._leave_ai_enhance()
 
+    def on_markdown_editor_save_request(self, message: MarkdownEditor.SaveRequest) -> None:
+        """Handle Ctrl+S from the MarkdownEditor component."""
+        message.stop()  # Prevent double bubbling/handling
+        self._save_note_edit()
+
     @work(thread=True, exclusive=True)
     def _run_note_ai_worker(self, text: str, prompt: str | None) -> None:
         """AI enhancement in a background thread."""
         try:
-            from src.workflows.transcription_workflow import transcription_workflow
-            from shared.schemas.workflow.transcription import TranscriptionEnhancementState
-
-            _LABELS = {
-                "speech_cleaner":     "Speech cleaner",
-                "markdown_formatter": "Markdown formatter",
-                "no_op":              "",
-            }
-            context_text = (
-                f"[USER INSTRUCTION: {prompt}]\n\n{text}" if prompt else text
-            )
-            initial = TranscriptionEnhancementState(
-                raw_text=text,
-                current_text=context_text,
-                applied_layers=[],
-                action_items=None,
-                error=None,
-                user_prompt=prompt,
-            )
-            last_state = initial
-            for chunk in transcription_workflow.stream(initial):
-                for node_name, state in chunk.items():
-                    label = _LABELS.get(node_name, node_name.replace("_", " ").title())
-                    self.app.call_from_thread(self._on_ai_agent_step, label)
-                    last_state = state
-
-            enhanced = last_state.get("current_text", text) if isinstance(last_state, dict) else text
-            error    = last_state.get("error") if isinstance(last_state, dict) else None
-            if error:
-                self.app.call_from_thread(self._on_ai_error, str(error))
+            from src.cli.client.http_client import ConcepTrackerClient
+            with ConcepTrackerClient() as client:
+                result = client.enhance_transcription(text, prompt)
+            if result.error:
+                self.app.call_from_thread(self._on_ai_error, str(result.error))
             else:
-                self.app.call_from_thread(self._on_ai_done, enhanced)
+                self.app.call_from_thread(self._on_ai_done, result.enhanced_text)
         except Exception as exc:
             self.app.call_from_thread(self._on_ai_error, str(exc))
 
@@ -329,14 +393,21 @@ class OpenNoteScreen(AppScreen):
         """Commit discard and return."""
         self._mode_transition_to_read()
 
+    @work(thread=True, exclusive=True)
     def _save_note_edit(self) -> None:
         """Commit the edited text to the note object, then leave edit mode."""
         try:
-            new_text = self.query_one("#note_edit_zone", MarkdownEditor).text
-            self._note.content = new_text
-        except Exception:
-            pass
-        self._mode_transition_to_read()
+            editor = self.query_one("#note_edit_zone", MarkdownEditor)
+            new_content = editor.text
+            
+            # Update the note on the server
+            with ConcepTrackerClient() as client:
+                updated_note = client.update_note(note_id=self._note.id, content=new_content)
+                self._note = updated_note
+            
+            self.app.call_from_thread(self._mode_transition_to_read)
+        except Exception as e:
+            self.notify(f"Error saving note: {e}", severity="error")
 
     def _update_preview(self) -> None:
         """No longer used — logic moved into MarkdownEditor component."""
@@ -498,60 +569,39 @@ class OpenNoteScreen(AppScreen):
     # ------------------------------------------------------------------ #
 
     def handle_action(self, key: str) -> ScreenSignal:
-        # Edit mode: Ctrl+S / Esc handled here; everything else goes to TextArea.
-        if self._mode == "edit":
-            if key == "ctrl+s":
-                self._save_note_edit()
-            elif key == "escape":
-                self._leave_note_edit()
-            return None
+        """Deprecated legacy bridge."""
+        pass
 
-        # AI enhance mode: Esc returns to read; Ctrl+R / Ctrl+A handled by AIEditor.
-        if self._mode == "ai":
-            if key == "escape":
-                self._leave_ai_enhance()
-            return None
+    # ------------------------------------------------------------------ #
+    #  Delete-confirm lifecycle                                            #
+    # ------------------------------------------------------------------ #
 
-        if key == "escape":
-            return SCREEN_EXIT
+    def _enter_delete_confirm(self) -> None:
+        """Switch to delete-confirmation mode, showing a confirmation panel."""
+        self._mode = "delete_confirm"
+        try:
+            self.query_one("#content_panel", Static).update(
+                render_delete_confirmation(self._note)
+            )
+        except Exception:
+            pass
+        self._refresh_footer()
+        try:
+            self.query_one("#menu_panel", Static).update(self._render_menu())
+        except Exception:
+            pass
 
-        if key in ("up", "k"):
-            if self.focus_zone == _ZONE_MENU:
-                if self.menu_index > 0:
-                    self.menu_index -= 1
-                else:
-                    self.focus_zone = _ZONE_MIDDLE
-            else:
-                self._focus_prev()
-            return True  # trigger refresh
+    def _leave_delete_confirm(self) -> None:
+        """Cancel delete and return to normal read mode."""
+        self._mode = "read"
+        self.refresh_zones()
+        self._refresh_footer()
 
-        if key in ("down", "j"):
-            if self.focus_zone == _ZONE_MENU:
-                if self.menu_index < len(self.menu_items) - 1:
-                    self.menu_index += 1
-                else:
-                    self.focus_zone = _ZONE_TOP
-            else:
-                self._focus_next()
-            return True  # trigger refresh
-
-        # SPACE — expand/collapse focused zone, or select menu item
-        if key == "space":
-            return self._handle_space()
-
-        # ENTER — select focused menu item
-        if key == "enter":
-            if self.focus_zone == _ZONE_MENU and self.menu_items:
-                label, callback = self.menu_items[self.menu_index]
-                if label == "Edit Note":
-                    self._enter_note_edit()
-                    return None
-                elif label == "AI":
-                    self._enter_ai_enhance()
-                    return None
+    def _execute_delete(self) -> ScreenSignal:
+        """Run the Delete callback from menu_items and return its signal."""
+        for label, callback in self.menu_items:
+            if label == "Delete":
                 return callback()
-            return None
-
         return None
 
     def _handle_space(self) -> ScreenSignal:

@@ -9,7 +9,7 @@ app = typer.Typer(
 
 # Automated CLI registration from the Registry
 for cmd in registry.commands:
-    # Registra el comando pasando el nombre + cualquier opción extra (como no_args_is_help)
+    # Register the command by passing the name + any extra options (like no_args_is_help)
     app.command(name=cmd.name, **cmd.kwargs)(cmd.func)
 
 if __name__ == "__main__":

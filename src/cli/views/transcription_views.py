@@ -13,9 +13,12 @@ from __future__ import annotations
 
 from typing import List
 
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+
+from src.cli.components.footer import render_footer
 
 
 def render_recording_status(
@@ -50,7 +53,6 @@ def render_transcription_panel(
 
     if full_text and current_partial:
         # Markdown body + trailing partial hint
-        from rich.console import Group
         body: object = Group(
             Markdown(full_text),
             Text(current_partial, style="dim"),
@@ -71,7 +73,6 @@ def render_transcription_panel(
 
 def render_navigation_panel() -> "Panel | Text":
     """Footer for the recording screen — docked at the bottom."""
-    from src.cli.components.footer import render_footer
     return render_footer(
         actions=[
             ("Esc",    "Pause",   "cyan"),

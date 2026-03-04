@@ -34,3 +34,7 @@ def ls(
         ).run()
     except ValueError as exc:
         console.print(Panel(str(exc), title="[bold]Error[/bold]", border_style="red"))
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(Panel(f"[red]Unexpected error:[/red] {e}", border_style="red"))
+        raise SystemExit(1)

@@ -14,6 +14,7 @@ AppScreen instance      Transition to that screen inside the same session.
 """
 from __future__ import annotations
 
+import inspect
 from typing import Any, Callable, Optional, Tuple, Union
 
 from rich.console import Console, RenderableType
@@ -54,11 +55,18 @@ class AppScreen(Screen):
     content: reactive[Optional[RenderableType]] = reactive(None)
 
     BINDINGS = [
-        Binding("ctrl+c", "quit_screen", "Quit", priority=True, show=False),
+        Binding("escape", "back_screen", "Back", priority=True, show=False),
     ]
 
     async def action_quit_screen(self) -> None:
-        """Global Hotkey: Ctrl+C always exits the current screen."""
+        """Ctrl+C handler — called by the App-level binding to exit cleanly."""
+        if len(self.app.screen_stack) > 2:
+            self.dismiss(self.result)
+        else:
+            self.app.exit(result=self.result)
+
+    async def action_back_screen(self) -> None:
+        """Escape usually acts as back/exit."""
         await self.process_signal(SCREEN_EXIT)
 
     def __init__(self, *args, **kwargs):
@@ -110,19 +118,34 @@ class AppScreen(Screen):
                 # Complex screens (like Pager) don't have #main_content, they have their own widgets
                 pass
 
+    def on_show(self) -> None:
+        """Called when the screen is shown (initial mount or after push_screen/pop)."""
+        # Ensure zones are refreshed when returning to screen
+        self.refresh_zones()
+        latest_layout = self._layout if self._layout else self.build_layout()
+        if latest_layout:
+            self.content = latest_layout
+
     async def on_key(self, event: Any) -> None:
         """
-        Bridge Textual keys to handle_action.
+        Bridge Textual keys to handle_action (legacy support).
+        Native BINDINGS are handled by Textual before reaching this.
         """
-        # (Ctrl+C now handled by BINDINGS to action_quit_screen)
+        # If the key is associated with a Textual binding on this screen or app,
+        # do not forward it to handle_action to avoid double-handling.
+        screen_bindings = getattr(self, "BINDINGS", []) or []
+        app_bindings = getattr(self.app, "BINDINGS", []) or []
+        if any(binding.key == event.key for binding in screen_bindings) or any(
+            binding.key == event.key for binding in app_bindings
+        ):
+            return
 
-        # We pass the key name (e.g. 'q', 'up', 'down', 'enter') to handle_action
         signal = self.handle_action(event.key)
         if signal:
             await self.process_signal(signal)
 
     def handle_action(self, key: str) -> ScreenSignal:
-        """New handle_action signature: override this to react to input."""
+        """DEPRECATED: Use BINDINGS and action_* methods instead."""
         return None
 
     async def process_signal(self, signal: ScreenSignal) -> None:
@@ -142,8 +165,12 @@ class AppScreen(Screen):
 
         if isinstance(signal, AppScreen):
             # Push the child screen; when it calls dismiss() (Back), return to this screen.
-            # The child is responsible for its own result; this screen stays alive.
-            self.app.push_screen(signal, callback=lambda _: None)
+            # We call self.on_show manually in the callback because Textual's 
+            # pop_screen don't always trigger Screen.on_show in all versions/setups.
+            def _handle_back(result):
+                self.on_show()
+            
+            self.app.push_screen(signal, callback=_handle_back)
             return
 
         if isinstance(signal, tuple) and signal[0] == "suspend":
@@ -161,12 +188,29 @@ class AppScreen(Screen):
 
 class TextualBridgeApp(App):
     """A minimal App to run a single AppScreen."""
+
+    BINDINGS = [
+        # App-level ctrl+c: highest priority in Textual's event hierarchy.
+        # This fires before any focused widget (including TextArea) can capture it.
+        Binding("ctrl+c", "app_quit", "Quit", priority=True, show=False),
+    ]
+
     def __init__(self, screen: AppScreen):
         super().__init__()
         self.root_screen = screen
 
     def on_mount(self) -> None:
         self.push_screen(self.root_screen)
+
+    async def action_app_quit(self) -> None:
+        """Ctrl+C at the App level always exits cleanly."""
+        screen = self.screen
+        if isinstance(screen, AppScreen):
+            result = screen.action_quit_screen()
+            if inspect.isawaitable(result):
+                await result
+        else:
+            self.exit()
 
 
 def run_screen(screen: AppScreen) -> Any:

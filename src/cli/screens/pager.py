@@ -24,6 +24,7 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.reactive import reactive
 from textual.widgets import Static
@@ -90,7 +91,56 @@ class _TablePagerScreen(AppScreen):
     global_cursor: reactive[int] = reactive(0)
     expanded_states: reactive[set] = reactive(set)
 
-    def __init__(self, all_rows, build_table_fn, page_size, header, build_preview, on_select=None):
+    BINDINGS = [
+        # Navigation
+        Binding("up", "move_cursor(-1)", "Up", show=False),
+        Binding("down", "move_cursor(1)", "Down", show=False),
+        Binding("k", "move_cursor(-1)", "Up", show=False),
+        Binding("j", "move_cursor(1)", "Down", show=False),
+        Binding("left", "page_left", "Prev Page", show=False),
+        Binding("right", "page_right", "Next Page", show=False),
+        Binding("p", "page_left", "Prev Page", show=False),
+        Binding("n", "page_right", "Next Page", show=False),
+        # Actions
+        Binding("enter", "select_item", "Open", priority=True),
+        Binding("space", "toggle_expand", "Expand", priority=True),
+    ]
+
+    async def action_move_cursor(self, delta: int) -> None:
+        if self._move_cursor(delta):
+            self.refresh_zones()
+
+    async def action_page_left(self) -> None:
+        if self._move_cursor(-self._dyn_page_size):
+            self.refresh_zones()
+
+    async def action_page_right(self) -> None:
+        if self._move_cursor(self._dyn_page_size):
+            self.refresh_zones()
+
+    async def action_toggle_expand(self) -> None:
+        if not self.build_preview:
+            return
+        idx = self.global_cursor
+        new_states = set(self.expanded_states)
+        if idx in new_states:
+            new_states.discard(idx)
+        else:
+            new_states.clear()
+            new_states.add(idx)
+        self.expanded_states = new_states
+
+    async def action_select_item(self) -> None:
+        item = self.all_rows[self.global_cursor]
+        if self.on_select:
+            screen = self.on_select(item)
+            if screen:
+                await self.process_signal(screen)
+                return
+        self.result = item
+        await self.process_signal(SCREEN_EXIT)
+
+    def __init__(self, all_rows, build_table_fn, page_size, header, build_preview, on_select=None, on_refresh=None):
         super().__init__()
         self.all_rows      = all_rows
         self.build_table_fn = build_table_fn
@@ -98,6 +148,7 @@ class _TablePagerScreen(AppScreen):
         self.header        = header
         self.build_preview = build_preview
         self.on_select     = on_select  # Callable[[item], AppScreen|None]
+        self.on_refresh    = on_refresh # Callable[[], Tuple[List, Dict]]
         self.result        = None
         self._dyn_page_size = page_size  # updated each refresh
         self._layout       = _PagerLayout()  # Initialize BEFORE refresh_zones() is called in on_mount
@@ -108,6 +159,23 @@ class _TablePagerScreen(AppScreen):
             yield Static(id="top_panel")
             yield Static(id="middle_panel")
         yield Static(id="bottom_panel")
+
+    def on_show(self) -> None:
+        """Refresh data whenever the screen becomes visible (e.g. after back)."""
+        if self.on_refresh:
+            try:
+                # Run the refresh logic provided by the interactor
+                new_rows, new_arch_cache = self.on_refresh()
+                if new_rows:
+                    self.all_rows = new_rows
+                    
+                    # Update the build_table_fn to use the new items and cache
+                    # This relies on closure variables from NoteListInteractor
+                    # but if we want to be safe we would need to pass these too.
+                    # Since paginate_table closure rebuilds it, we just refresh.
+                    self.refresh_zones()
+            except Exception:
+                pass
 
     def watch_global_cursor(self, _) -> None:
         if self.is_mounted:
@@ -203,37 +271,9 @@ class _TablePagerScreen(AppScreen):
         # Always push layout updates to widgets (called from both watchers and process_signal)
         self._update_ui_parts()
 
-    def handle_action(self, key: str) -> Any:
-        page, total_pages, *_ = self._compute()
-        dyn = self._dyn_page_size
-
-        if key == "escape":
-            self.result = None
-            return SCREEN_EXIT
-        if key == "enter":
-            item = self.all_rows[self.global_cursor]
-            if self.on_select:
-                # Push the note/detail screen; stay in this Textual session
-                screen = self.on_select(item)
-                if screen is not None:
-                    return screen  # process_signal will push_screen
-            self.result = item
-            return SCREEN_EXIT
-        if key == "space" and self.build_preview:
-            idx = self.global_cursor
-            new_states = set(self.expanded_states)
-            if idx in new_states:
-                new_states.discard(idx)
-            else:
-                new_states.clear()
-                new_states.add(idx)
-            self.expanded_states = new_states  # reassign to trigger watcher
-            return None  # watcher handles refresh
-        if key in ("down", "j"):  return self._move_cursor(+1) or None
-        if key in ("up", "k"):    return self._move_cursor(-1) or None
-        if key in ("right", "n"): return self._move_cursor(+dyn) or None
-        if key in ("left", "p"):  return self._move_cursor(-dyn) or None
-        return None
+    def handle_action(self, key: str) -> None:
+        """Deprecated legacy bridge."""
+        pass
 
 
 def paginate_table(
@@ -243,6 +283,7 @@ def paginate_table(
     header: Optional[Any] = None,
     build_preview: Optional[Callable[[T], Any]] = None,
     on_select: Optional[Callable[[T], Any]] = None,
+    on_refresh: Optional[Callable[[], Tuple[List[T], Dict]]] = None,
 ) -> Optional[T]:
     """
     Paginate a list through a Rich Table with selection.
@@ -256,6 +297,8 @@ def paginate_table(
     header       : optional Rich renderable to display above the table.
     build_preview: optional function that receives an item and returns a Rich renderable
                    to display below the table when the item is expanded.
+    on_select    : callback that returns an AppScreen to push.
+    on_refresh   : optional callback to fetch data from the server.
 
     Returns
     -------
@@ -264,7 +307,37 @@ def paginate_table(
     if not all_rows:
         console.print("[yellow]No results.[/yellow]")
         return None
-    screen = _TablePagerScreen(all_rows, build_table, page_size, header, build_preview, on_select)
+    
+    # We create a local state for the closure since all_rows inside screen won't 
+    # magically update the build_table closure unless we are careful.
+    class PagerState:
+        rows = all_rows
+        cache = {}
+
+    def dynamic_table_builder(chunk, cursor, start, expanded):
+        return build_table(chunk, cursor, start, expanded)
+
+    def dynamic_preview_builder(item):
+        return build_preview(item) if build_preview else None
+
+    # We need to wrap on_refresh to update local closures if needed
+    def refresh_wrapper():
+        nonlocal all_rows
+        if on_refresh:
+            new_rows, new_cache = on_refresh()
+            all_rows = new_rows # Update for the screen
+            return new_rows, new_cache
+        return all_rows, {}
+
+    screen = _TablePagerScreen(
+        all_rows, 
+        build_table, 
+        page_size, 
+        header, 
+        build_preview, 
+        on_select,
+        on_refresh=on_refresh # The screen needs the original one to update its own self.all_rows
+    )
     run_screen(screen)
     return screen.result
 

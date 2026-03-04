@@ -207,9 +207,10 @@ def note_find_table_view(
     table.add_column("Summary", style="white")
 
     for i, item in enumerate(chunk):
-        note, distance = item
+        note, score = item
         global_idx = start_idx + i
-        percentage = max(0, min(100, int((1 - distance) * 100)))
+        # score is a relevance value in [0, 1] where 1 = most relevant.
+        percentage = max(0, min(100, int(score * 100)))
         match_color = "green" if percentage > 70 else "yellow"
         match_str = f"[{match_color}]{percentage}%[/{match_color}]"
         arch_label = arch_cache.get(note.archipelago_id, "[dim]~island~[/dim]")

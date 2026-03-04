@@ -10,6 +10,8 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from src.cli.components.footer import render_footer
+
 if TYPE_CHECKING:
     from shared.schemas.models.note import Note
 
@@ -38,7 +40,6 @@ def open_note_actions_panel() -> Panel:
     """
     Footer for the open_note screen — read/navigate mode.
     """
-    from src.cli.components.footer import render_footer
     actions = [
         ("\u25b2/\u25bc", "Navigate",     "yellow"),
         ("Space",  "Expand/Select", "magenta"),
@@ -48,11 +49,22 @@ def open_note_actions_panel() -> Panel:
     return render_footer(actions, border=True, border_style="dim")
 
 
+def open_note_delete_hint_panel() -> Panel:
+    """
+    Footer for the open_note screen — Delete item focused in the menu.
+    """
+    actions = [
+        ("\u25b2/\u25bc", "Navigate",     "yellow"),
+        ("Enter",  "Delete",         "red"),
+        ("Ctrl+C", "Back",          "dim"),
+    ]
+    return render_footer(actions, border=True, border_style="red")
+
+
 def open_note_edit_footer() -> Panel:
     """
     Footer for the open_note screen — edit mode.
     """
-    from src.cli.components.footer import render_footer
     actions = [
         ("Ctrl+S", "Save edit", "green"),
         ("Esc",    "Cancel",    "yellow"),
@@ -64,10 +76,20 @@ def open_note_ai_footer() -> Panel:
     """
     Footer for the open_note screen — AI enhance mode.
     """
-    from src.cli.components.footer import render_footer
     actions = [
         ("Ctrl+R", "Run AI",  "cyan"),
         ("Ctrl+A", "Accept",  "green"),
         ("Esc",    "Cancel",  "yellow"),
     ]
     return render_footer(actions, border=True, border_style="dim")
+
+
+def open_note_delete_footer() -> Panel:
+    """
+    Footer for the open_note screen — delete confirmation mode.
+    """
+    actions = [
+        ("Enter", "Delete", "red"),
+        ("Esc",   "Cancel", "yellow"),
+    ]
+    return render_footer(actions, border=True, border_style="red")

@@ -9,6 +9,30 @@ from rich.panel import Panel
 from rich.text import Text
 
 
+def _format_confidence_badge(confidence: dict) -> str:
+    """Return a compact dim signal badge for display under a link line."""
+    if not confidence:
+        return ""
+    score = confidence.get("score", 0.0)
+    s = confidence.get("signals", {})
+    parts = [f"score={score:.2f}"]
+    if s.get("vector"):
+        parts.append(f"vec={s['vector']}")
+    if s.get("lexical") and s["lexical"] != "None":
+        parts.append(f"lex={s['lexical']}")
+    if s.get("same_family"):
+        parts.append("family=✓")
+    elif s.get("same_domain"):
+        parts.append("domain=✓")
+    if s.get("rrf_top"):
+        parts.append("rrf=✓")
+    if s.get("recent"):
+        parts.append("recent=✓")
+    if s.get("parent"):
+        parts.insert(0, "PARENT")
+    return " · ".join(parts)
+
+
 def render_ingest_result(
     result: dict,
     cost_str: str,
@@ -62,15 +86,39 @@ def render_ingest_result(
             target_id = link.target_id if hasattr(link, "target_id") else link["target_id"]
             relation_type = link.relation_type if hasattr(link, "relation_type") else link["relation_type"]
             reason = link.reason if hasattr(link, "reason") else link["reason"]
+            confidence = (
+                link.confidence if hasattr(link, "confidence") else
+                (link.get("confidence") if isinstance(link, dict) else None)
+            )
             t_summary = f"Note {target_id}"
             if get_note_summary_func:
                 t_summary = get_note_summary_func(target_id) or t_summary
             items.append(Text.from_markup(
-                f" [blue]{relation_type}[/blue] -> {t_summary} (Reason: {reason})"
+                f" [blue]{relation_type}[/blue] -> {t_summary}\n"
+                f"   [dim italic]Reason: {reason}[/dim italic]"
+                + (f"\n   [dim]{_format_confidence_badge(confidence)}[/dim]" if confidence else "")
             ))
     else:
         items.append(Text.from_markup(
             "[italic yellow]No direct relations found in the past. New atomic island created.[/italic yellow]"
+        ))
+
+    # Near-miss candidates hint (shown without --review)
+    near_misses = result.get("near_miss_candidates", [])
+    if near_misses:
+        miss_parts = []
+        for nm in near_misses[:4]:   # cap at 4 to keep output tidy
+            lc = nm.get("link_confidence", {})
+            score = lc.get("score", 0.0)
+            s = lc.get("signals", {})
+            label = "SameDomain" if s.get("same_domain") else ("SameFamily" if s.get("same_family") else "")
+            nm_summary = (nm.get("summary") or f"Note {nm['id']}")[:45]
+            miss_parts.append(f"• [{score:.2f}] {nm_summary}" + (f" ({label})" if label else ""))
+        overflow = f" +{len(near_misses) - 4} more" if len(near_misses) > 4 else ""
+        items.append(Text.from_markup(
+            f"[dim]Considered but not linked{overflow}:\n" +
+            "\n".join(f"  {p}" for p in miss_parts) +
+            "\n  Run with [bold]--review[/bold] to manually connect these.[/dim]"
         ))
 
     # Geography

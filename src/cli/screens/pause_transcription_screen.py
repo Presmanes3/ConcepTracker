@@ -326,42 +326,13 @@ class PauseTranscriptionScreen(Screen):
         call_from_thread that updates the spinner title with the agent name.
         """
         try:
-            from src.workflows.transcription_workflow import transcription_workflow
-            from shared.schemas.workflow.transcription import TranscriptionEnhancementState
-
-            # Human-readable label map for agent node names
-            _LABELS = {
-                "speech_cleaner":     "Speech cleaner",
-                "markdown_formatter": "Markdown formatter",
-                "no_op":              "",
-            }
-
-            context_text = (
-                f"[USER INSTRUCTION: {prompt}]\n\n{text}" if prompt else text
-            )
-            initial = TranscriptionEnhancementState(
-                raw_text=text,
-                current_text=context_text,
-                applied_layers=[],
-                action_items=None,
-                error=None,
-                user_prompt=prompt,
-            )
-
-            last_state = initial
-            for chunk in transcription_workflow.stream(initial):
-                # chunk = {node_name: state_dict}
-                for node_name, state in chunk.items():
-                    label = _LABELS.get(node_name, node_name.replace("_", " ").title())
-                    self.app.call_from_thread(self._on_agent_step, label)
-                    last_state = state
-
-            enhanced = last_state.get("current_text", text) if isinstance(last_state, dict) else text
-            error    = last_state.get("error") if isinstance(last_state, dict) else None
-            if error:
-                self.app.call_from_thread(self._on_enhance_error, error)
+            from src.cli.client.http_client import ConcepTrackerClient
+            with ConcepTrackerClient() as client:
+                result = client.enhance_transcription(text, prompt)
+            if result.error:
+                self.app.call_from_thread(self._on_enhance_error, str(result.error))
             else:
-                self.app.call_from_thread(self._on_enhance_done, enhanced)
+                self.app.call_from_thread(self._on_enhance_done, result.enhanced_text)
         except Exception as exc:
             self.app.call_from_thread(self._on_enhance_error, str(exc))
 

@@ -1,6 +1,7 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static, TextArea
+from textual.message import Message
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
@@ -14,6 +15,18 @@ class MarkdownEditor(Horizontal):
     The preview updates 10 times per second (every 100ms) as requested.
     """
     
+    BINDINGS = [
+        ("ctrl+s", "save", "Save"),
+    ]
+
+    def action_save(self) -> None:
+        """Post a SaveRequest message to the screen."""
+        self.post_message(self.SaveRequest())
+
+    class SaveRequest(Message):
+        """Message sent to parent to request saving the current text."""
+        pass
+
     DEFAULT_CSS = """
     MarkdownEditor {
         width: 1fr;

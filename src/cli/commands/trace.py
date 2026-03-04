@@ -1,11 +1,12 @@
+﻿"""trace command â€” trace the chronological evolution of a concept."""
 from rich.console import Console
+from rich.panel import Panel
+
+from src.cli.interactors.note_trace_interactor import NoteTraceInteractor
 from src.cli.registry import registry
 
-from src.services.embedding_service import embedding_service
-from src.registry import repos
-from src.cli.views import render_trace_timeline
-
 console = Console()
+
 
 @registry.register(
     name="trace",
@@ -14,16 +15,12 @@ console = Console()
 )
 def trace(concept: str, threshold: float = 0.85):
     """Trace the chronological evolution of a concept."""
+    try:
+        NoteTraceInteractor(concept=concept, threshold=threshold).run()
+    except ValueError as e:
+        console.print(Panel(f"[red]{e}[/red]", title="[bold]Error[/bold]", border_style="red"))
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(Panel(f"[red]Unexpected error:[/red] {e}", border_style="red"))
+        raise SystemExit(1)
 
-    
-    console.print(f"[bold magenta]Tracing: {concept}[/bold magenta]")
-    
-    # Search relevant notes using vector similarity with threshold
-    vec = embedding_service.get_embedding(concept)
-    similar_notes = repos.notes.get_similar_notes(current_id=None, embedding=vec, limit=10, threshold=threshold)
-    note_ids = [n["id"] for n in similar_notes]
-    
-    # Load all notes sorted by date
-    notes = repos.notes.get_notes_by_ids(note_ids)
-    
-    console.print(render_trace_timeline(concept, notes, note_ids, repos.links.get_links_by_source))
