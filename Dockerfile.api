@@ -1,0 +1,53 @@
+# ── Build stage ───────────────────────────────────────────────────────────────
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# System deps for psycopg2-binary and audio-less build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml .
+COPY README.md .
+
+# Install only backend-relevant extras (no Textual, no sounddevice, no amazon-transcribe)
+# The base dependencies already contain the shared stack (langgraph, sqlmodel, boto3, etc.)
+# We add the [api] and [client] extras on top.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -e ".[api,client]" \
+    && pip uninstall -y textual questionary sounddevice 2>/dev/null || true
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+# Runtime system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy only the source directories needed by the backend — no CLI/TUI code.
+COPY shared/        ./shared/
+COPY src/agents/    ./src/agents/
+COPY src/api/       ./src/api/
+COPY src/registry/  ./src/registry/
+COPY src/repository/ ./src/repository/
+COPY src/services/  ./src/services/
+COPY src/utils/     ./src/utils/
+COPY src/workflows/ ./src/workflows/
+
+# config/ is mounted as a volume at runtime (see docker-compose.yml).
+# The settings.yaml path is resolved via CONCEPTRACKER_CONFIG env var.
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]
