@@ -27,8 +27,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Mount config/ read-only so settings.yaml is available inside the container.
-      - ./config:/app/config:ro
+      # Mount config/ with write access so settings.yaml can be updated by the API.
+      - ./config:/app/config
 
       # Mount host AWS credentials so the container can use them directly.
       - ${USERPROFILE:-~}/.aws:/root/.aws:ro
