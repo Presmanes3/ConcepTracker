@@ -8,7 +8,8 @@ console = Console()
 @registry.register(
     name="auth",
     description="Configure AWS credentials for Bedrock (Saves to .env).",
-    example="ct auth"
+    example="ct auth",
+    group="Configuration"
 )
 def auth(
     access_key: str = typer.Option(..., prompt="AWS Access Key ID", hide_input=False),

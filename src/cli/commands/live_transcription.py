@@ -17,9 +17,10 @@ console = Console()
 
 
 @registry.register(
-    name="live_transcription",
+    name="listen",
     description="Start a real-time transcription session using AWS Transcribe.",
-    example="ct live_transcription",
+    example="ct listen",
+    aliases=["lt", "live"]
 )
 def live_transcription():
     """Start a real-time transcription session using AWS Transcribe."""

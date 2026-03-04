@@ -17,6 +17,8 @@ console = Console()
     name="ls",
     description="List all notes in a clean table.",
     example="ct ls --tag AI --archipelago 'Machine Learning'",
+    aliases=["l"],
+    group="Search & Discovery"
 )
 def ls(
     tag: str = typer.Option(None, "--tag", "-t", help="Filter by tag"),

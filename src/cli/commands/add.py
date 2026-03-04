@@ -12,7 +12,9 @@ console = Console()
 @registry.register(
     name="add",
     description="Capture a note with auto-linking.",
-    example='ct add "DeepSeek-R1 uses RL" --tag "AI"'
+    example='ct add "DeepSeek-R1 uses RL" --tag "AI"',
+    aliases=["a"],
+    group="Note Management"
 )
 def add(
     content: str,

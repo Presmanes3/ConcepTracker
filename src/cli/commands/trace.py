@@ -11,7 +11,8 @@ console = Console()
 @registry.register(
     name="trace",
     description="Trace the chronological evolution of a concept.",
-    example='ct trace "Large Language Models" --threshold 0.8'
+    example='ct trace "Large Language Models" --threshold 0.8',
+    aliases=["t"]
 )
 def trace(concept: str, threshold: float = 0.85):
     """Trace the chronological evolution of a concept."""

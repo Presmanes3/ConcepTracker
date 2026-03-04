@@ -9,9 +9,10 @@ console = Console()
 
 
 @registry.register(
-    name="list-devices",
+    name="devices",
     description="Browse available audio input devices and set the active one.",
-    example="ct list-devices",
+    example="ct devices",
+    aliases=["ld", "devs"]
 )
 def list_devices() -> None:
     """Open an interactive list of all available audio input devices."""

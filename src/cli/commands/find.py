@@ -15,7 +15,9 @@ console = Console()
 @registry.register(
     name="find",
     description="Semantic search through your knowledge.",
-    example='ct find "concepts about machine learning"'
+    example='ct find "concepts about machine learning"',
+    aliases=["f"],
+    group="Search & Discovery"
 )
 def find(
     query: str = typer.Argument(..., help="Semantic search query"),

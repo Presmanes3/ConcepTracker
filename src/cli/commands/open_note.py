@@ -11,9 +11,10 @@ from src.cli.registry import registry
 console = Console()
 
 @registry.register(
-    name="open_note",
+    name="show",
     description="Open a note in a dedicated TUI screen.",
-    example='ct open_note 42'
+    example='ct show 42',
+    aliases=["s", "open"]
 )
 def open_note(
     note_id: int = typer.Argument(..., help="ID of the note to open"),

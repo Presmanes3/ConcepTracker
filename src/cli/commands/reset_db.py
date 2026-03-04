@@ -10,9 +10,9 @@ console = Console()
 
 
 @registry.register(
-    name="reset_db",
+    name="reset-db",
     description="Drop and recreate all database tables (destructive).",
-    example="ct reset_db",
+    example="ct reset-db",
 )
 def reset_db(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
