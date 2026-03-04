@@ -1,64 +1,27 @@
-"""Dynamic transcription enhancement pipeline: configurable speech-cleaner and markdown-formatter stages."""
+"""Transcription enhancement pipeline: cleans and structures raw speech using the normalizer."""
 from langgraph.graph import END, START, StateGraph
 
+from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.workflow.transcription import TranscriptionEnhancementState
-from src.agents.speech_cleaner_agent import speech_cleaner_agent
-from src.agents.markdown_formatter_agent import markdown_formatter_agent
-from src.repository.config_repository import config_repository
+from src.agents.normalizer_agent import NormalizerAgent
 
-def build_transcription_workflow():
-    """
-    Builds a dynamic LangGraph workflow based on settings.yaml.
-    """
-    workflow = StateGraph(TranscriptionEnhancementState)
-    
-    # Read pipeline config from settings
-    settings = config_repository.get_settings()
-    
-    pipeline_config = []
-    if hasattr(settings, "transcription") and settings.transcription and hasattr(settings.transcription, "enhancement_pipeline"):
-        pipeline_config = settings.transcription.enhancement_pipeline
-    
-    # If no pipeline is configured, just return a pass-through graph
-    if not pipeline_config:
-        def no_op(state: TranscriptionEnhancementState):
-            return state
-        workflow.add_node("no_op", no_op)
-        workflow.add_edge(START, "no_op")
-        workflow.add_edge("no_op", END)
-        return workflow.compile()
+_normalizer = NormalizerAgent()
 
-    # Map config names to agent functions
-    agent_map = {
-        "speech_cleaner": speech_cleaner_agent.process,
-        "markdown_formatter": markdown_formatter_agent.process
+
+def _normalize_transcription(state: TranscriptionEnhancementState) -> TranscriptionEnhancementState:
+    """Node: clean and format transcription text using the normalizer."""
+    ingest_input = IngestState(content=state["current_text"], source_type="transcription")  # type: ignore[call-arg]
+    result = _normalizer.run(ingest_input)  # type: ignore[arg-type]
+    return {
+        **state,
+        "current_text": result.get("content", state["current_text"]),
+        "applied_layers": [*state["applied_layers"], "normalizer"],
     }
-    
-    # Add nodes for configured agents
-    active_nodes = []
-    for step in pipeline_config:
-        if step in agent_map:
-            workflow.add_node(step, agent_map[step])
-            active_nodes.append(step)
-            
-    if not active_nodes:
-        def no_op(state: TranscriptionEnhancementState):
-            return state
-        workflow.add_node("no_op", no_op)
-        workflow.add_edge(START, "no_op")
-        workflow.add_edge("no_op", END)
-        return workflow.compile()
 
-    # Set entry point
-    workflow.add_edge(START, active_nodes[0])
-    
-    # Connect nodes sequentially
-    for i in range(len(active_nodes) - 1):
-        workflow.add_edge(active_nodes[i], active_nodes[i+1])
-        
-    # Connect last node to END
-    workflow.add_edge(active_nodes[-1], END)
-    
-    return workflow.compile()
 
-transcription_workflow = build_transcription_workflow()
+_wf = StateGraph(TranscriptionEnhancementState)
+_wf.add_node("normalize", _normalize_transcription)
+_wf.add_edge(START, "normalize")
+_wf.add_edge("normalize", END)
+
+transcription_workflow = _wf.compile()
