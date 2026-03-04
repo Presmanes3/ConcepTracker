@@ -24,6 +24,7 @@ from shared.schemas.api.notes import (
     NoteIngestResponse,
     NoteResponse,
     NoteUpdateRequest,
+    NoteEnhanceRequest,
 )
 from shared.schemas.api.search import SearchRequest, SearchResponse
 from shared.schemas.api.links import LinkConfirmRequest, LinkResponse
@@ -144,6 +145,13 @@ class ConcepTrackerClient:
         body = SearchRequest(query=query, limit=limit)
         return SearchResponse.model_validate(
             self._post("/search", body.model_dump())
+        )
+
+    def enhance_note(self, note_id: int, user_instruction: str) -> NoteResponse:
+        """Trigger professional AI enhancement for an existing note."""
+        body = NoteEnhanceRequest(user_instruction=user_instruction)
+        return NoteResponse.model_validate(
+            self._post(f"/notes/{note_id}/enhance", body.model_dump())
         )
 
     # ── Archipelagos ──────────────────────────────────────────────────────────
