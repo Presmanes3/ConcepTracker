@@ -24,8 +24,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from shared.schemas.api.transcription import TranscriptionSaveRequest
+from shared.schemas.api.transcription import DeviceResponse, TranscriptionSaveRequest
 from src.cli.client.http_client import ConcepTrackerClient
+from src.cli.screens.device_list_screen import run_device_list_ui
 
 console = Console()
 
@@ -127,14 +128,49 @@ class TranscriptionInteractor:
     # ── Private helpers ────────────────────────────────────────────────────
 
     def _ensure_device(self) -> Optional[int]:
-        from src.cli.screens.device_list_screen import run_device_list_ui
-
+        """Verify device availability or prompt for selection.
+        
+        Returns:
+            Configured device ID or None if selection cancelled.
+        """
+        # CLI detects local devices, backend keeps the setting (settings.yaml)
+        backend_devices: List[DeviceResponse] = []
         with ConcepTrackerClient() as client:
-            device_responses = client.list_devices()
+            try:
+                backend_devices = client.list_devices()
+            except Exception:
+                backend_devices = []
 
-        devices = [d.model_dump() for d in device_responses]
-        configured_id = next((d["id"] for d in devices if d["active"]), None)
-        available_ids = {d["id"] for d in devices}
+        # Local device scan
+        local_devices = []
+        try:
+            import sounddevice as sd
+            sd_devices = sd.query_devices()
+            for i, d in enumerate(sd_devices):
+                if d.get("max_input_channels", 0) > 0:
+                    local_devices.append({
+                        "id": i,
+                        "name": d.get("name", f"Device {i}"),
+                        "channels": d.get("max_input_channels"),
+                        "default": i == sd.default.device[0]
+                    })
+        except (ImportError, Exception):
+            pass
+
+        # Use backend "active" setting, but use local devices for selection UI
+        configured_id = next((d.id for d in backend_devices if d.active), None)
+        available_ids = {ld["id"] for ld in local_devices}
+
+        # Build list for UI
+        devices_for_ui = []
+        for ld in local_devices:
+            devices_for_ui.append({
+                "id": ld["id"],
+                "name": ld["name"],
+                "channels": ld["channels"],
+                "default": ld["default"],
+                "active": ld["id"] == configured_id
+            })
 
         if configured_id is None or configured_id not in available_ids:
             if configured_id is not None:
@@ -142,10 +178,10 @@ class TranscriptionInteractor:
             else:
                 console.print("[yellow]No audio input device configured.[/yellow]")
 
-            if not devices:
+            if not devices_for_ui:
                 console.print("[red]No audio input devices found on this system.[/red]")
                 return None
-            selected = run_device_list_ui(devices, configured_id)
+            selected = run_device_list_ui(devices_for_ui, configured_id)
             if selected is None:
                 console.print("[red]Cancelled: no audio device selected.[/red]")
                 return None
