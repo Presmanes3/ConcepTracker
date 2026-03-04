@@ -49,6 +49,11 @@ class NoteUpdateRequest(BaseModel):
     tags: Optional[str] = Field(default=None, description="Updated tags.")
 
 
+class NoteEnhanceRequest(BaseModel):
+    """Request to trigger professional AI enhancement for a note."""
+    user_instruction: str = Field(..., description="The instruction provided by the user for the AI.")
+
+
 class NoteListResponse(BaseModel):
     """Paginated list of notes."""
     notes: List[NoteResponse] = Field(..., description="Subsegment of retrieved notes.")
