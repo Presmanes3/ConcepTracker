@@ -16,5 +16,32 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: concept_api
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount config/ read-only so settings.yaml is available inside the container.
+      - ./config:/app/config:ro
+
+      # Mount host AWS credentials so the container can use them directly.
+      - ${USERPROFILE:-~}/.aws:/root/.aws:ro
+    environment:
+      # Database
+      DATABASE_URL: postgresql://ct_user:ct_password@db:5432/concept_db
+      # Tell ServiceRegistry and ConfigRepository where settings.yaml lives.
+      CONCEPTRACKER_CONFIG: /app/config/settings.yaml
+      # AWS credentials — sourced from the host .env file.
+    env_file:
+      - .env
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+

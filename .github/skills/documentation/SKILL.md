@@ -165,6 +165,24 @@ Content.
 
 ---
 
+## Pydantic Models & Schemas
+
+Schemas are the "source of truth" for API contracts and Agent I/O. They must be self-documenting.
+
+### Rules
+- Use `pydantic.Field` for **every** attribute in `BaseModel` classes.
+- The `description` parameter is mandatory.
+- Descriptions should be concise, imperative, and end with a period.
+
+### Example
+```python
+class SearchRequest(BaseModel):
+    query: str = Field(..., description="Natural language query for semantic search.")
+    limit: int = Field(10, ge=1, le=50, description="Maximum number of results to return.")
+```
+
+---
+
 ## CLI Help Text (Typer)
 
 ```python
