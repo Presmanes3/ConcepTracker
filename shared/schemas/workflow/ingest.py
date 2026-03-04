@@ -93,6 +93,12 @@ class IngestState(BaseModel):
         description="Synthetic summary of the archipelago."
     )
 
+    # 5b. Near-miss Candidates (evaluated but not linked)
+    near_miss_candidates: List[dict] = Field(
+        default_factory=list,
+        description="Candidates that were scored but fell below the link threshold — surfaced for --review UX.",
+    )
+
     # 6. Metadata for Traceability
     pipeline_errors: List[str] = Field(
         default_factory=list,

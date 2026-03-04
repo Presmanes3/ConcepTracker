@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from src.repository.config_repository import ConfigRepository
     from src.repository.inference_repository import InferenceRepository
     from src.repository.transcription_repository import TranscriptionRepository
+    from src.services.search_service import SearchService
 
 
 class RepositoryRegistry:
@@ -80,6 +81,13 @@ class RepositoryRegistry:
     def transcriptions(self) -> "TranscriptionRepository":
         from src.repository.transcription_repository import transcription_repository
         return transcription_repository
+
+    # ── Search ────────────────────────────────────────────────────────────────
+
+    @property
+    def search(self) -> "SearchService":
+        from src.services.search_service import search_service
+        return search_service
 
 
 repos = RepositoryRegistry()

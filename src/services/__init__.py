@@ -6,13 +6,24 @@ import contextlib
 import io
 
 def bedrock_health_check():
-    f = io.StringIO()
+    """Verify Bedrock connectivity by attempting a small embedding request."""
     try:
-        with contextlib.redirect_stderr(f):
-            embedding_service.get_embedding("ping")
-        return True
-    except Exception:
-        return False
+        from src.services.embedding_service import embedding_service
+        embedding_service.get_embedding("ping")
+        return {"status": "healthy"}
+    except Exception as e:
+        error_msg = str(e)
+        if "MissingRegionError" in error_msg:
+            hint = "AWS_REGION is missing."
+        elif "NoCredentialsError" in error_msg:
+            hint = "AWS credentials not found."
+        elif "InvalidClientTokenId" in error_msg:
+            hint = "Invalid AWS Access Key."
+        elif "SignatureDoesNotMatch" in error_msg:
+            hint = "Invalid AWS Secret Key."
+        else:
+            hint = error_msg
+        return {"status": "unhealthy", "message": hint}
 
 # Register Database
 service_registry.register(

@@ -25,8 +25,17 @@ class NoteRepository:
             session.refresh(note)
             return note
 
-    def update_note(self, note_id: int, content: Optional[str] = None, summary: Optional[str] = None, tags: Optional[str] = None) -> Optional[Note]:
-        """Updates an existing note's editable fields."""
+    def update_note(
+        self,
+        note_id: int,
+        content: Optional[str] = None,
+        summary: Optional[str] = None,
+        tags: Optional[str] = None,
+        embedding: Optional[List[float]] = None,
+        domain: Optional[str] = None,
+        domain_family: Optional[str] = None,
+    ) -> Optional[Note]:
+        """Updates an existing note's editable and AI-generated fields."""
         with get_session() as session:
             note = session.get(Note, note_id)
             if not note:
@@ -37,6 +46,12 @@ class NoteRepository:
                 note.summary = summary
             if tags is not None:
                 note.tags = tags
+            if embedding is not None:
+                note.embedding = embedding
+            if domain is not None:
+                note.domain = domain
+            if domain_family is not None:
+                note.domain_family = domain_family
             session.add(note)
             session.commit()
             session.refresh(note)
@@ -108,12 +123,12 @@ class NoteRepository:
                 for n in notes
             ]
 
-    def get_similar_notes(self, current_id: Optional[int], embedding: List[float], query_text: Optional[str] = None, limit: int = 5, threshold: float = 1.0) -> List[Dict[str, Any]]:
+    def get_similar_notes(self, current_id: Optional[int], embedding: List[float], query_text: Optional[str] = None, limit: int = 5, threshold: float = 1.0, language: str = "simple") -> List[Dict[str, Any]]:
         """Hybrid search: Vector-based nearest neighbors (pgvector) + Lexical search (BM25)."""
         with get_session() as session:
             if query_text:
                 # Hybrid search: Semantic + Lexical
-                query = text("""
+                query = text(f"""
                     WITH semantic AS (
                         SELECT id, content, summary, domain, domain_family,
                                (embedding <=> CAST(:vec AS vector)) as distance
@@ -123,10 +138,10 @@ class NoteRepository:
                     ),
                     lexical AS (
                         SELECT id,
-                               ts_rank_cd(to_tsvector('spanish', content), plainto_tsquery('spanish', :query_text)) as lexical_score
+                               ts_rank_cd(to_tsvector('{language}', content), plainto_tsquery('{language}', :query_text)) as lexical_score
                         FROM notes
                         WHERE (id != :current_id OR :current_id IS NULL)
-                          AND plainto_tsquery('spanish', :query_text) @@ to_tsvector('spanish', content)
+                          AND plainto_tsquery('{language}', :query_text) @@ to_tsvector('{language}', content)
                     )
                     SELECT s.id, s.content, s.summary, s.distance, s.domain, s.domain_family,
                            COALESCE(l.lexical_score, 0) as lexical_score,

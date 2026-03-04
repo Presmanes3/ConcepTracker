@@ -35,7 +35,13 @@ class ServiceRegistry:
         return cls._instance
 
     def _load_active_services(self) -> Dict[str, bool]:
-        settings_path = Path("config/settings.yaml")
+        import os
+        env_path = os.environ.get("CONCEPTRACKER_CONFIG")
+        if env_path:
+            settings_path = Path(env_path)
+        else:
+            # Absolute path relative to this file: src/registry/../../config/settings.yaml
+            settings_path = Path(__file__).resolve().parent.parent.parent / "config" / "settings.yaml"
         if not settings_path.exists():
             return {}
         try:

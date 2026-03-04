@@ -1,18 +1,30 @@
 import yaml
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+
+
+def _resolve_settings_path() -> Path:
+    env_path = os.environ.get("CONCEPTRACKER_CONFIG")
+    if env_path:
+        return Path(env_path)
+    return Path(__file__).resolve().parent.parent.parent / "config" / "settings.yaml"
+
 
 class AudioDeviceService:
     """
     Single Source of Truth (SSoT) for audio device configuration and availability.
     """
     _instance = None
-    _settings_path = Path("config/settings.yaml")
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(AudioDeviceService, cls).__new__(cls)
         return cls._instance
+
+    @property
+    def _settings_path(self) -> Path:
+        return _resolve_settings_path()
 
     def get_available_input_devices(self) -> List[Dict[str, Any]]:
         """Returns a list of available audio input devices."""

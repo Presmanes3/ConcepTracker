@@ -1,11 +1,20 @@
 import yaml
 import os
 import threading
+from pathlib import Path
 from typing import Optional, Dict
 
 from shared.schemas.models.config import AppSettings, ModelPricing
 
-CONFIG_FILE = os.path.join("config", "settings.yaml")
+def _resolve_config_path() -> str:
+    """Resolve settings.yaml path via env var or package-relative default."""
+    env_path = os.environ.get("CONCEPTRACKER_CONFIG")
+    if env_path:
+        return env_path
+    # src/repository/../../config/settings.yaml → <project_root>/config/settings.yaml
+    return str(Path(__file__).resolve().parent.parent.parent / "config" / "settings.yaml")
+
+CONFIG_FILE = _resolve_config_path()
 
 class ConfigRepository:
     """
