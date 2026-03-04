@@ -11,14 +11,11 @@ from rich.text import Text
 
 
 def render_trace_timeline(concept, notes, note_ids, get_links_func) -> RenderableType:
-    """Return a Rich Panel containing the trace timeline."""
+    """Return a list of Rich objects for the trace timeline."""
     if not notes:
-        return Panel(
+        return [
             Text.from_markup(f"[yellow]No records found for concept: [bold]{concept}[/bold][/yellow]"),
-            title="[bold magenta]Trace[/bold magenta]",
-            border_style="magenta",
-            expand=True,
-        )
+        ]
 
     items: list = []
     for i, n in enumerate(notes):
@@ -39,9 +36,4 @@ def render_trace_timeline(concept, notes, note_ids, get_links_func) -> Renderabl
     items.append(Text(""))
     items.append(Text.from_markup("[dim]Ready for more inputs. Keep tracking.[/dim]"))
 
-    return Panel(
-        Group(*items),
-        title=f"[bold magenta]Trace: {concept}[/bold magenta]",
-        border_style="magenta",
-        expand=True,
-    )
+    return Group(*items)
