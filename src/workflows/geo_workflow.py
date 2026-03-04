@@ -48,6 +48,9 @@ from shared.schemas.models.archipelago import Archipelago
 MIN_ISLANDS = 2          # min unassigned linked notes required to form a new archipelago
 MIN_ORPHAN_ARCHS = 3     # min orphan archipelagos required to form a continent
 
+# ── Module-level agent singletons ─────────────────────────────────────────────
+_geo_namer = GeoNamerAgent()
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -151,8 +154,7 @@ def arch_namer(state: GeoState) -> dict:
         else "  (no additional context available)"
     )
 
-    agent = GeoNamerAgent()
-    result = agent.name(
+    result = _geo_namer.name(
         ARCH_NAMER_PROMPT,
         anchor_summary=state.note_summary,
         cluster_summaries=cluster_summaries,
@@ -218,8 +220,7 @@ def continent_namer(state: GeoState) -> dict:
         else "  (no summary available)"
     )
 
-    agent = GeoNamerAgent()
-    result = agent.name(
+    result = _geo_namer.name(
         CONTINENT_NAMER_PROMPT,
         archipelago_list=archipelago_list,
     )
@@ -250,30 +251,30 @@ def continent_persister(state: GeoState) -> dict:
 
 # ── Routing functions ─────────────────────────────────────────────────────────
 
-def geo_decision_router(state: GeoState) -> Literal["none", "join", "create"]:
+def _route_after_geo_router(state: GeoState) -> Literal["none", "join", "create"]:
     return state.geo_decision.lower()  # type: ignore[return-value]
 
 
-def continent_check_router(state: GeoState) -> Literal["continent", "done"]:
+def _route_after_geo_persister(state: GeoState) -> Literal["continent", "done"]:
     return "continent" if state.trigger_continent else "done"
 
 
 # ── Graph assembly ────────────────────────────────────────────────────────────
 
-_workflow = StateGraph(GeoState)
+_graph = StateGraph(GeoState)
 
-_workflow.add_node("geo_router", geo_router)
-_workflow.add_node("join_executor", join_executor)
-_workflow.add_node("arch_namer", arch_namer)
-_workflow.add_node("geo_persister", geo_persister)
-_workflow.add_node("continent_namer", continent_namer)
-_workflow.add_node("continent_persister", continent_persister)
+_graph.add_node("geo_router", geo_router)
+_graph.add_node("join_executor", join_executor)
+_graph.add_node("arch_namer", arch_namer)
+_graph.add_node("geo_persister", geo_persister)
+_graph.add_node("continent_namer", continent_namer)
+_graph.add_node("continent_persister", continent_persister)
 
-_workflow.add_edge(START, "geo_router")
+_graph.add_edge(START, "geo_router")
 
-_workflow.add_conditional_edges(
+_graph.add_conditional_edges(
     "geo_router",
-    geo_decision_router,
+    _route_after_geo_router,
     {
         "none": END,
         "join": "join_executor",
@@ -281,19 +282,19 @@ _workflow.add_conditional_edges(
     },
 )
 
-_workflow.add_edge("join_executor", END)
-_workflow.add_edge("arch_namer", "geo_persister")
+_graph.add_edge("join_executor", END)
+_graph.add_edge("arch_namer", "geo_persister")
 
-_workflow.add_conditional_edges(
+_graph.add_conditional_edges(
     "geo_persister",
-    continent_check_router,
+    _route_after_geo_persister,
     {
         "done": END,
         "continent": "continent_namer",
     },
 )
 
-_workflow.add_edge("continent_namer", "continent_persister")
-_workflow.add_edge("continent_persister", END)
+_graph.add_edge("continent_namer", "continent_persister")
+_graph.add_edge("continent_persister", END)
 
-geo_graph = _workflow.compile()
+geo_graph = _graph.compile()

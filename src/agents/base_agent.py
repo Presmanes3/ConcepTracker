@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Type, TypeVar, Generic, Any, Dict, Optional
+import logging
 import os
 from pydantic import BaseModel
 from langchain_aws import ChatBedrock
@@ -25,6 +26,7 @@ class BaseAgent(ABC, Generic[TInput, TOutput]):
         # Default to the active model in SSoT config if not specified
         self.model_id = model_id or config_repository.get_active_model_id()
         self.task_name = task_name
+        self.logger = logging.getLogger(self.__class__.__name__)
         
         # Initialize LLM
         self.llm = ChatBedrock(

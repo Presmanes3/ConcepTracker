@@ -1,54 +1,66 @@
 """
-bidirectional_linker_agent.py
-─────────────────────────────
-Consensus linker that eliminates threshold dependency.
+src/agents/bidirectional_linker_agent.py
+══════════════════════════════════════════════════════════════════════════════
+Confidence-first bidirectional linker.
 
-## Core principle
+## Design
 
-Standard linking uses a single number (embedding distance threshold) to decide
-what enters the LLM prompt, and a single LLM call to decide what links to create.
-Two sources of arbitrary calibration.
+Unlike the old two-agent approach (LinkerAgent → RetrospectiveLinkerAgent),
+this agent handles BOTH forward and backward links in a single LLM call,
+guided by pre-computed multi-signal confidence scores from `link_confidence.py`.
 
-Bidirectional consensus replaces both with a logical standard:
+## Pipeline inside this agent
 
-  Forward  pass: "Given note B (new), which existing notes connect to it?"
-  Backward pass: "Given note A (existing), would it connect to note B (new)?"
-  Decision rule: a link is created ONLY when both independent calls agree.
+  1. Receive candidates already enriched with `link_confidence` (score + signals).
+  2. AUTO-LINK: candidates with score >= AUTO_LINK_THRESHOLD (0.90) are linked
+     without any LLM call — they are semantically unambiguous.
+  3. SEND TO LLM: candidates in [0.25, 0.90) go to one single LLM call that
+     asks for BOTH forward and backward links simultaneously.
+  4. DROP: candidates below 0.25 are silently discarded before the LLM sees them.
 
-## Cost model
+## Cost
 
-Backward validation is run for Moderate and Weak tier candidates —
-        the tiers where homonym false positives empirically occur (distance 0.55-0.90).
-        Only High similarity links (distance < 0.55) are trusted from forward pass alone.
+  0 ambiguous candidates -> 0 LLM calls (only auto-links)
+  n ambiguous candidates -> 1 LLM call (both directions decided at once)
 
-  0 weak forward links  →  1 LLM call   (identical to LinkerAgent)
-  n weak forward links  →  1 + n calls  (n bounded by top-K size)
+  This is strictly cheaper than the old system:
+    old: 1 forward call + 1 retro call + N backward validation calls
+    new: max 1 call, regardless of pool size
 
-## Why this eliminates threshold dependency
+## Output
 
-The retrieval step can be recall-optimistic (top-K, no distance cutoff) because
-the consensus filter handles precision. No need to tune "0.75 vs 0.80 vs 0.90"
-— the standard is now "do two independent LLM views agree?", which is a logical
-requirement rather than an arbitrary numeric choice.
+  {"links": [LinkItem, ...], "retrospective_links": []}
+
+  The link items carry `direction` ("FORWARD" or "BACKWARD") and `source_id`
+  (set only for BACKWARD links).  `ingest_workflow.save_all_links` uses these
+  fields to route each link to the correct DB row.
+
+  retrospective_links is always [] -- it exists only for backward compatibility
+  with the workflow state schema; the old RetrospectiveLinkerAgent is no longer called.
 """
-
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
-from shared.schemas.agents.linker import LinkerResult
+from shared.prompts.bidirectional_linker import BIDIRECTIONAL_LINKING_PROMPT
+from shared.schemas.agents.linker import LinkItem, LinkerResult
 from shared.schemas.workflow.ingest import IngestState
-from shared.prompts.linking_agent import LINKING_PROMPT
 from src.agents.base_agent import BaseAgent
-from src.utils.embeddings import similarity_tier
-from src.repository.note_repository import note_repository
+from src.utils.link_confidence import (
+    AUTO_LINK_THRESHOLD,
+    NEAR_MISS_MIN,
+    SEND_TO_LLM_LOW,
+    format_confidence_line,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class BidirectionalLinkerAgent(BaseAgent[IngestState, LinkerResult]):
     """
-    Two-pass consensus linker.
-
-    See module docstring for full design rationale.
+    Single-call confidence-first bidirectional linker.
+    Replaces both LinkerAgent and RetrospectiveLinkerAgent.
     """
 
     def __init__(self) -> None:
@@ -57,156 +69,167 @@ class BidirectionalLinkerAgent(BaseAgent[IngestState, LinkerResult]):
     # ── Public interface ──────────────────────────────────────────────────────
 
     def run(self, state: IngestState) -> Dict[str, Any]:
-        """
-        Run forward + conditional backward pass and return consensus links.
+        """Compute all links (both directions) for the ingested note.
 
-        Returns same shape as LinkerAgent: {"links": [list of link dicts]}.
+        Returns:
+            {"links": [list of link dicts], "retrospective_links": [], "near_miss_candidates": [...]}
+
+        near_miss_candidates contains:
+          - Pre-LLM drops: score in [NEAR_MISS_MIN, SEND_TO_LLM_LOW)
+          - LLM-rejected: went to LLM but the model decided SKIP
+        Used by the --review CLI flag for human-in-the-loop confirmation.
         """
         if not state.similar_notes:
-            return {"links": []}
+            logger.debug("[BidirectionalLinker] No candidates -- skipping.")
+            return {"links": [], "retrospective_links": [], "near_miss_candidates": []}
 
-        # ── Forward pass ──────────────────────────────────────────────────────
-        forward_links, weak_target_ids = self._forward_pass(state)
+        # Fast lookup: candidate dict by note ID
+        candidate_by_id: Dict[int, Dict[str, Any]] = {c["id"]: c for c in state.similar_notes}
 
-        if not forward_links:
-            return {"links": []}
+        # ── Partition candidates by confidence zone ───────────────────────────
+        auto_links: List[Dict[str, Any]] = []
+        llm_candidates: List[Dict[str, Any]] = []
+        near_miss_pre_llm: List[Dict[str, Any]] = []   # [NEAR_MISS_MIN, SEND_TO_LLM_LOW)
 
-        # ── Backward validation (Moderate + Weak tier candidates) ────────────
-        if not weak_target_ids:
-            # All forward links are High — trust them as-is
-            return {"links": forward_links}
+        for candidate in state.similar_notes:
+            lc = candidate.get("link_confidence", {})
+            score = lc.get("score", 0.0)
 
-        confirmed = self._backward_validate(
-            forward_links=forward_links,
-            weak_target_ids=weak_target_ids,
-            new_note_id=state.note_id,
-            new_note_summary=state.summary or state.content[:300],
-            original_similar_notes=state.similar_notes,
+            if score >= AUTO_LINK_THRESHOLD or lc.get("signals", {}).get("parent"):
+                auto_links.append(candidate)
+                logger.debug(
+                    "[BidirectionalLinker] AUTO-LINK id=%s score=%.2f",
+                    candidate["id"], score,
+                )
+            elif score >= SEND_TO_LLM_LOW:
+                llm_candidates.append(candidate)
+            elif score >= NEAR_MISS_MIN:
+                near_miss_pre_llm.append(candidate)
+                logger.debug(
+                    "[BidirectionalLinker] NEAR-MISS id=%s score=%.2f (pre-LLM drop)",
+                    candidate["id"], score,
+                )
+            else:
+                logger.debug(
+                    "[BidirectionalLinker] NOISE id=%s score=%.2f (below NEAR_MISS_MIN)",
+                    candidate["id"], score,
+                )
+
+        # ── Build auto-link results (no LLM) ─────────────────────────────────
+        result_links: List[Dict[str, Any]] = []
+
+        for c in auto_links:
+            lc = c.get("link_confidence", {})
+            result_links.append(
+                LinkItem(
+                    target_id=c["id"],
+                    relation_type="REINFORCES",
+                    reason="Auto-linked: confidence score >= 0.90 (parent concept or near-identical semantics).",
+                    direction="FORWARD",
+                    confidence=lc,
+                ).model_dump()
+            )
+            # Parent concepts also get a backward link
+            if lc.get("signals", {}).get("parent"):
+                result_links.append(
+                    LinkItem(
+                        target_id=state.note_id,
+                        source_id=c["id"],
+                        relation_type="REINFORCES",
+                        reason="Auto-linked (backward): existing note is parent concept of new note.",
+                        direction="BACKWARD",
+                        confidence=lc,
+                    ).model_dump()
+                )
+
+        # ── LLM call for ambiguous zone ───────────────────────────────────────
+        llm_links: List[Dict[str, Any]] = []
+        if llm_candidates:
+            logger.debug(
+                "[BidirectionalLinker] LLM call for %d ambiguous candidates",
+                len(llm_candidates),
+            )
+            llm_links = self._run_llm_pass(state, llm_candidates)
+
+            # Attach confidence signals to each LLM-confirmed link
+            for lnk in llm_links:
+                direction = lnk.get("direction", "FORWARD")
+                lookup_id = lnk.get("source_id") if direction == "BACKWARD" else lnk.get("target_id")
+                cand = candidate_by_id.get(lookup_id)
+                if cand:
+                    lnk["confidence"] = cand.get("link_confidence", {})
+
+            result_links.extend(llm_links)
+
+        # ── Compute near-miss candidates (for --review UX) ───────────────────
+        llm_confirmed_ids: set = set()
+        for lnk in llm_links:
+            direction = lnk.get("direction", "FORWARD")
+            confirmed_id = lnk.get("source_id") if direction == "BACKWARD" else lnk.get("target_id")
+            if confirmed_id:
+                llm_confirmed_ids.add(confirmed_id)
+
+        llm_rejected = [c for c in llm_candidates if c["id"] not in llm_confirmed_ids]
+        near_miss_candidates = near_miss_pre_llm + llm_rejected
+
+        logger.info(
+            "[BidirectionalLinker] note_id=%s  total_links=%d  (auto=%d  llm=%d)  near_misses=%d",
+            state.note_id,
+            len(result_links),
+            len(auto_links),
+            len(llm_links),
+            len(near_miss_candidates),
         )
-        return {"links": confirmed}
+
+        return {"links": result_links, "retrospective_links": [], "near_miss_candidates": near_miss_candidates}
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _forward_pass(
-        self, state: IngestState
-    ) -> tuple[list[dict], set[int]]:
-        """
-        Run the standard forward LLM call.
-
-        Returns:
-          forward_links  — list of link dicts from the LLM
-          weak_target_ids — set of target_ids whose tier is Moderate or Weak
-                           (these will need backward confirmation; High is trusted)
-        """
-        tier_by_id: dict[int, str] = {
-            n["id"]: similarity_tier(n.get("distance", 1.0))
-            for n in state.similar_notes
-        }
-
-        # Build prompt — exclude Distant, include all others (same as LinkerAgent)
-        past_notes_lines: list[str] = []
-        for n in state.similar_notes:
-            tid  = n["id"]
-            tier = tier_by_id[tid]
-            if tier == "Distant":
-                continue
-            past_notes_lines.append(f"[{tier}] ID {tid}: {n['summary']}")
-
-        if not past_notes_lines:
-            return [], set()
-
-        messages = LINKING_PROMPT.format_messages(
-            new_note=state.content,
-            past_notes="\n".join(past_notes_lines),
-        )
-        data: LinkerResult = self._call_llm(messages, output_schema=LinkerResult)
-        forward_links = [lnk.model_dump() for lnk in data.links] if data.links else []
-
-        # Identify which links need backward validation:
-        # Moderate and Weak tiers — High similarity is trusted from forward pass alone.
-        NEEDS_VALIDATION = {"Moderate similarity", "Weak topical connection"}
-        weak_target_ids = {
-            lnk["target_id"]
-            for lnk in forward_links
-            if tier_by_id.get(lnk["target_id"]) in NEEDS_VALIDATION
-        }
-
-        return forward_links, weak_target_ids
-
-    def _backward_validate(
+    def _run_llm_pass(
         self,
-        forward_links: list[dict],
-        weak_target_ids: set[int],
-        new_note_id: Optional[int],
-        new_note_summary: str,
-        original_similar_notes: list[dict],
-    ) -> list[dict]:
-        """
-        For each Weak link, run a backward call from the existing note's perspective.
+        state: IngestState,
+        candidates: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Build the prompt, call the LLM, return validated link dicts."""
+        taxonomy = state.taxonomy
 
-        A backward call asks: "Given note A (existing), does it connect to note B (new)?"
-        The link is confirmed only if the backward LLM call also votes yes.
+        is_component_of: Optional[str] = taxonomy.is_component_of if taxonomy else None
+        parent_hint = (
+            f"Note: taxonomy flags this note as a sub-concept of '{is_component_of}'. "
+            f"If '{is_component_of}' appears in a candidate, you MUST create a REINFORCES link."
+            if is_component_of else ""
+        )
 
-        High / Moderate links pass through without backward validation.
-        """
-        # Distance between the two notes is symmetric — reuse from forward pass
-        dist_by_id: dict[int, float] = {
-            n["id"]: n.get("distance", 0.65)
-            for n in original_similar_notes
-        }
-
-        confirmed: list[dict] = []
-
-        for link in forward_links:
-            target_id = link["target_id"]
-
-            if target_id not in weak_target_ids:
-                # High or Moderate — trust the forward pass, no extra call needed
-                confirmed.append(link)
-                continue
-
-            # Fetch the existing note's content for the backward call
-            target_note = note_repository.get_note_by_id(target_id)
-            if target_note is None:
-                # Can't fetch — trust forward pass defensively
-                confirmed.append(link)
-                continue
-
-            backward_confirmed = self._run_backward_call(
-                existing_note_content=target_note.content or target_note.summary or "",
-                new_note_id=new_note_id,
-                new_note_summary=new_note_summary,
-                distance=dist_by_id.get(target_id, 0.65),
+        candidate_lines: List[str] = []
+        for c in candidates:
+            score_line = format_confidence_line(c)
+            summary = c.get("summary") or c.get("content", "")[:200]
+            candidate_lines.append(
+                f"[{score_line}]\nID {c['id']}: {summary}"
             )
 
-            if backward_confirmed:
-                confirmed.append(link)
-            # else: link silently dropped — both perspectives must agree
-
-        return confirmed
-
-    def _run_backward_call(
-        self,
-        existing_note_content: str,
-        new_note_id: Optional[int],
-        new_note_summary: str,
-        distance: float,
-    ) -> bool:
-        """
-        Ask the LLM: "From note A's perspective, does it connect to note B?"
-
-        Returns True if the LLM creates any link to new_note_id.
-        """
-        tier = similarity_tier(distance)
-        candidate_line = f"[{tier}] ID {new_note_id}: {new_note_summary}"
-
-        messages = LINKING_PROMPT.format_messages(
-            new_note=existing_note_content,
-            past_notes=candidate_line,
+        messages = BIDIRECTIONAL_LINKING_PROMPT.format_messages(
+            new_note_id=state.note_id or "NEW",
+            new_note=state.content,
+            domain=taxonomy.domain if taxonomy else "unknown",
+            domain_family=taxonomy.domain_family if taxonomy else "unknown",
+            concept_type=taxonomy.concept_type if taxonomy else "unknown",
+            parent_hint=parent_hint,
+            candidates="\n\n".join(candidate_lines),
         )
+
         data: LinkerResult = self._call_llm(messages, output_schema=LinkerResult)
+        if not data or not data.links:
+            return []
 
-        return any(
-            lnk.target_id == new_note_id
-            for lnk in (data.links or [])
-        )
+        validated: List[Dict[str, Any]] = []
+        for lnk in data.links:
+            d = lnk.model_dump()
+            if d.get("direction") == "BACKWARD" and not d.get("source_id"):
+                logger.warning(
+                    "[BidirectionalLinker] BACKWARD link missing source_id -- skipped. raw=%s", d
+                )
+                continue
+            validated.append(d)
+
+        return validated

@@ -1,4 +1,6 @@
-from langgraph.graph import StateGraph, END
+"""Dynamic transcription enhancement pipeline: configurable speech-cleaner and markdown-formatter stages."""
+from langgraph.graph import END, START, StateGraph
+
 from shared.schemas.workflow.transcription import TranscriptionEnhancementState
 from src.agents.speech_cleaner_agent import speech_cleaner_agent
 from src.agents.markdown_formatter_agent import markdown_formatter_agent
@@ -22,7 +24,7 @@ def build_transcription_workflow():
         def no_op(state: TranscriptionEnhancementState):
             return state
         workflow.add_node("no_op", no_op)
-        workflow.set_entry_point("no_op")
+        workflow.add_edge(START, "no_op")
         workflow.add_edge("no_op", END)
         return workflow.compile()
 
@@ -43,12 +45,12 @@ def build_transcription_workflow():
         def no_op(state: TranscriptionEnhancementState):
             return state
         workflow.add_node("no_op", no_op)
-        workflow.set_entry_point("no_op")
+        workflow.add_edge(START, "no_op")
         workflow.add_edge("no_op", END)
         return workflow.compile()
 
     # Set entry point
-    workflow.set_entry_point(active_nodes[0])
+    workflow.add_edge(START, active_nodes[0])
     
     # Connect nodes sequentially
     for i in range(len(active_nodes) - 1):
