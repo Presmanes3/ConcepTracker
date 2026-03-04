@@ -28,7 +28,12 @@ def list_devices(svc=Depends(get_audio_device_service)):
 
 @router.put("/devices/active", response_model=MessageResponse)
 def set_active_device(body: DeviceSetRequest, svc=Depends(get_audio_device_service)):
+    """Set the active device ID in configuration.
+    
+    Note: Validation against local devices is skipped because the API may be
+    running in a container while the CLI (with the actual hardware) is remote.
+    """
     success = svc.set_configured_device_id(body.device_id)
     if not success:
-        raise HTTPException(status_code=400, detail=f"Could not set device {body.device_id}.")
-    return MessageResponse(message=f"Active device set to {body.device_id}.")
+        raise HTTPException(status_code=500, detail=f"Failed to persist device {body.device_id} to configuration.")
+    return MessageResponse(message=f"Active device ID set to {body.device_id} in configuration.")
