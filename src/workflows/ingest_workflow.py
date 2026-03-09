@@ -6,13 +6,11 @@ from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.models.note import Note
 from shared.schemas.models.link import Link
 
-# Specialized Repositories
-from src.repository.note_repository import note_repository
-from src.repository.link_repository import link_repository
+# Registry
+from src.registry import repos
 
 # Shared Services
 from src.services.embedding_service import embedding_service
-from src.services.cost_service import cost_service
 
 # Fully decoupled Agents
 from src.agents.normalizer_agent import NormalizerAgent
@@ -67,15 +65,12 @@ def classify_concept(state: IngestState):
 def search_before_save(state: IngestState):
     """Find similar notes before committing to DB."""
     logger.info("--- [ingest_workflow] node: search_before_save ---")
-    raw_similar = note_repository.get_similar_notes(
-        current_id=None,
+    filtered = search_service.vector_search(
         embedding=state.embedding,
-        query_text=state.content,
-        limit=5
+        limit=5,
+        threshold=DISTANCE_DEDUP_CUTOFF,
     )
-    # Only near-identical concepts reach the Gatekeeper
-    filtered = [n for n in raw_similar if n.get("distance", 1.0) < DISTANCE_DEDUP_CUTOFF]
-    logger.debug(f"[search_before_save] found {len(raw_similar)} similar, filtered to {len(filtered)} candidates")
+    logger.debug("[search_before_save] found %d dedup candidates", len(filtered))
     return {"similar_notes": filtered}
 
 def gatekeeper_decision(state: IngestState):
@@ -87,11 +82,10 @@ def gatekeeper_decision(state: IngestState):
 
 def update_existing_note(state: IngestState):
     """Updates an existing note instead of creating a new one."""
-    logger.info(f"--- [ingest_workflow] node: update_existing_note (ID: {state.note_id}) ---")
-    note_repository.update_note(
-        note_id=state.note_id, 
-        summary=state.summary 
-        # Optionally merge content if needed, for now just summary
+    logger.info("--- [ingest_workflow] node: update_existing_note (ID: %s) ---", state.note_id)
+    repos.notes.update_note(
+        note_id=state.note_id,
+        summary=state.summary,
     )
     return {"note_id": state.note_id}
 
@@ -107,8 +101,8 @@ def save_note_to_db(state: IngestState):
         domain=taxonomy.domain if taxonomy else None,
         domain_family=taxonomy.domain_family if taxonomy else None,
     )
-    saved_note = note_repository.save_note(new_note)
-    logger.info(f"[save_note_to_db] saved new note ID: {saved_note.id}")
+    saved_note = repos.notes.save_note(new_note)
+    logger.info("[save_note_to_db] saved new note ID: %s", saved_note.id)
     return {"note_id": saved_note.id}
 
 def search_related_for_linking(state: IngestState):
@@ -147,7 +141,7 @@ def search_related_for_linking(state: IngestState):
         fused_ids.add(item["id"])
 
     # 2. Temporal context — domain + distance aware
-    raw_recent = note_repository.get_recent_notes(limit=3, exclude_id=state.note_id)
+    raw_recent = repos.notes.get_recent_notes(limit=3, exclude_id=state.note_id)
     new_family = state.taxonomy.domain_family if state.taxonomy else None
 
     recent_notes: list = []
@@ -203,7 +197,7 @@ def save_all_links(state: IngestState):
             if not source_id:
                 continue
             # Dedup: skip if this existing note already links to the new note
-            existing = link_repository.get_links_by_source(source_id)
+            existing = repos.links.get_links_by_source(source_id)
             if any(e.target_id == target_id for e in existing):
                 continue
         else:  # FORWARD
@@ -212,7 +206,7 @@ def save_all_links(state: IngestState):
             if not target_id:
                 continue
 
-        link_repository.save_link(Link(
+        repos.links.save_link(Link(
             source_id=source_id,
             target_id=target_id,
             relation_type=relation_type,
@@ -284,25 +278,3 @@ _graph.add_edge("detect_archipelago", END)
 _graph.add_edge("update_note", END)
 
 ingest_graph = _graph.compile()
-
-
-# ── Partial re-normalisation graph (used by PUT /notes endpoint) ───────────────────
-
-_normalize_builder = StateGraph(IngestState)
-_normalize_builder.add_node("normalize", normalize_and_embed)
-_normalize_builder.add_node("classify_concept", classify_concept)
-_normalize_builder.add_edge(START, "normalize")
-_normalize_builder.add_edge("normalize", "classify_concept")
-_normalize_builder.add_edge("classify_concept", END)
-_normalize_graph = _normalize_builder.compile()
-
-
-def run_normalize(content: str, note_id: int | None = None) -> dict:
-    """Run normalize → classify for content re-processing without full ingest.
-
-    Invoke when updating an existing note's content; produces a fresh summary,
-    tags, embedding, domain, and domain_family without triggering the gatekeeper,
-    link detection, or geography sub-workflow.
-    """
-    state = IngestState(content=content, note_id=note_id)
-    return _normalize_graph.invoke(state)

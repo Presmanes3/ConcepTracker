@@ -1,36 +1,31 @@
-from shared.schemas.workflow.transcription import TranscriptionEnhancementState
-from src.agents.base_agent import BaseAgent
-from shared.prompts.markdown_formatter import MARKDOWN_FORMATTER_PROMPT
+from typing import Any, Dict
 
-class MarkdownFormatterAgent(BaseAgent):
-    """
-    Agent responsible for structuring cleaned text into readable Markdown.
-    """
-    
-    def __init__(self):
+from shared.prompts.markdown_formatter import MARKDOWN_FORMATTER_PROMPT
+from shared.schemas.agents.markdown_formatter import MarkdownFormatterOutput
+from shared.schemas.workflow.ingest import IngestState
+from src.agents.base_agent import BaseAgent
+from src.registry import agent_registry
+
+
+@agent_registry.register("markdown_formatter")
+class MarkdownFormatterAgent(BaseAgent[IngestState, MarkdownFormatterOutput]):
+    """Structure cleaned text into readable Markdown."""
+
+    def __init__(self) -> None:
         super().__init__(task_name="markdown_formatter", temperature=0.2)
 
-    def run(self, state: TranscriptionEnhancementState) -> TranscriptionEnhancementState:
-        # Not used directly in LangGraph node, but required by BaseAgent
-        return self.process(state)
+    def run(self, state: IngestState) -> Dict[str, Any]:
+        """Format *state.content* as Markdown and return the updated content.
 
-    def process(self, state: TranscriptionEnhancementState) -> TranscriptionEnhancementState:
-        """Processes the current text in the state and returns the formatted version."""
-        text_to_format = state["current_text"]
-        
-        if not text_to_format.strip():
-            return state
-            
-        try:
-            messages = MARKDOWN_FORMATTER_PROMPT.format_messages(text=text_to_format)
-            response = self._call_llm(messages)
-            
-            state["current_text"] = response.content.strip()
-            state["applied_layers"].append("markdown_formatter")
-            
-        except Exception as e:
-            state["error"] = f"MarkdownFormatterAgent failed: {str(e)}"
-            
-        return state
+        Args:
+            state: Ingest state; only ``content`` is consumed.
 
-markdown_formatter_agent = MarkdownFormatterAgent()
+        Returns:
+            Dict with updated ``content`` key.
+        """
+        if not state.content.strip():
+            return {}
+
+        messages = MARKDOWN_FORMATTER_PROMPT.format_messages(text=state.content)
+        data: MarkdownFormatterOutput = self._call_llm(messages, output_schema=MarkdownFormatterOutput)
+        return {"content": data.formatted_text}

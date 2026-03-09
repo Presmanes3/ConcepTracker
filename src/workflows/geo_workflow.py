@@ -37,8 +37,7 @@ from langgraph.graph import StateGraph, START, END
 from shared.schemas.workflow.geo import GeoState
 from shared.prompts.geo_namer import ARCH_NAMER_PROMPT, CONTINENT_NAMER_PROMPT
 from src.agents.geo_namer_agent import GeoNamerAgent
-from src.repository.archipelago_repository import archipelago_repository
-from src.repository.note_repository import note_repository
+from src.registry import repos
 from shared.schemas.models.archipelago import Archipelago
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -85,7 +84,7 @@ def geo_router(state: GeoState) -> dict:
     unassigned_ids = []
 
     for note_id in linked_ids:
-        arch = archipelago_repository.get_archipelago_for_note(note_id)
+        arch = repos.archipelagos.get_archipelago_for_note(note_id)
         if arch and arch.type == "archipelago":
             arch_counts[arch.id] += 1
         else:
@@ -102,7 +101,7 @@ def geo_router(state: GeoState) -> dict:
             target_arch_id = tied_ids[0]
         else:
             archs = [
-                archipelago_repository.get_archipelago_by_id(aid)
+                repos.archipelagos.get_archipelago_by_id(aid)
                 for aid in tied_ids
             ]
             archs = [a for a in archs if a is not None]
@@ -124,11 +123,11 @@ def geo_router(state: GeoState) -> dict:
 
 def join_executor(state: GeoState) -> dict:
     """Assign the current note to the target archipelago. Zero LLM calls."""
-    arch = archipelago_repository.get_archipelago_by_id(state.target_archipelago_id)
+    arch = repos.archipelagos.get_archipelago_by_id(state.target_archipelago_id)
     if not arch:
         return {"archipelago_action": "NONE"}
 
-    archipelago_repository.assign_note_to_archipelago(state.note_id, arch.id)
+    repos.archipelagos.assign_note_to_archipelago(state.note_id, arch.id)
 
     return {
         "archipelago_id": arch.id,
@@ -144,7 +143,7 @@ def arch_namer(state: GeoState) -> dict:
     """
     cluster_summaries_lines = []
     for nid in state.cluster_note_ids:
-        note = note_repository.get_note_by_id(nid)
+        note = repos.notes.get_note_by_id(nid)
         if note:
             cluster_summaries_lines.append(f"  - [Note {nid}] {note.summary}")
 
@@ -175,21 +174,21 @@ def geo_persister(state: GeoState) -> dict:
     arch_summary = state.proposed_arch_summary or "Auto-formed cluster of related notes."
 
     new_arch = Archipelago(name=arch_name, summary=arch_summary, type="archipelago")
-    saved_arch = archipelago_repository.save_archipelago(new_arch)
+    saved_arch = repos.archipelagos.save_archipelago(new_arch)
 
     # Assign the anchor note
-    archipelago_repository.assign_note_to_archipelago(state.note_id, saved_arch.id)
+    repos.archipelagos.assign_note_to_archipelago(state.note_id, saved_arch.id)
 
     # Assign cluster notes that are still unassigned
     for nid in state.cluster_note_ids:
         if nid == state.note_id:
             continue
-        existing = archipelago_repository.get_archipelago_for_note(nid)
+        existing = repos.archipelagos.get_archipelago_for_note(nid)
         if not existing:
-            archipelago_repository.assign_note_to_archipelago(nid, saved_arch.id)
+            repos.archipelagos.assign_note_to_archipelago(nid, saved_arch.id)
 
-    # ── Continent trigger check ────────────────────────────────────────────────
-    orphan_archs = archipelago_repository.get_orphan_archipelagos()
+    # ── Continent trigger check ───────────────────────────────────────────────────────
+    orphan_archs = repos.archipelagos.get_orphan_archipelagos()
     # Exclude the newly created arch (it doesn't have a parent yet either)
     orphan_ids = [a.id for a in orphan_archs]
     trigger_continent = len(orphan_ids) >= MIN_ORPHAN_ARCHS
@@ -210,7 +209,7 @@ def continent_namer(state: GeoState) -> dict:
     """
     archipelago_lines = []
     for arch_id in state.orphan_arch_ids:
-        arch = archipelago_repository.get_archipelago_by_id(arch_id)
+        arch = repos.archipelagos.get_archipelago_by_id(arch_id)
         if arch:
             archipelago_lines.append(f"  - '{arch.name}': {arch.summary}")
 
@@ -241,10 +240,10 @@ def continent_persister(state: GeoState) -> dict:
         summary=continent_summary,
         type="continent",
     )
-    saved_continent = archipelago_repository.save_archipelago(new_continent)
+    saved_continent = repos.archipelagos.save_archipelago(new_continent)
 
     for arch_id in state.orphan_arch_ids:
-        archipelago_repository.set_continent_parent(arch_id, saved_continent.id)
+        repos.archipelagos.set_continent_parent(arch_id, saved_continent.id)
 
     return {}   # IngestState continent data not surfaced yet; deferred to `ct refresh`
 

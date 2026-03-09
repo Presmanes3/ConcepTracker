@@ -1,4 +1,3 @@
-```skill
 ---
 name: fastapi_architecture
 description: >
@@ -196,4 +195,4 @@ services:
     volumes:
       - ./config:/app/config:ro
 ```
-```
+

@@ -47,6 +47,7 @@ from shared.prompts.bidirectional_linker import BIDIRECTIONAL_LINKING_PROMPT
 from shared.schemas.agents.linker import LinkItem, LinkerResult
 from shared.schemas.workflow.ingest import IngestState
 from src.agents.base_agent import BaseAgent
+from src.registry import agent_registry
 from src.utils.link_confidence import (
     AUTO_LINK_THRESHOLD,
     NEAR_MISS_MIN,
@@ -57,6 +58,7 @@ from src.utils.link_confidence import (
 logger = logging.getLogger(__name__)
 
 
+@agent_registry.register("bidirectional_linker")
 class BidirectionalLinkerAgent(BaseAgent[IngestState, LinkerResult]):
     """
     Single-call confidence-first bidirectional linker.

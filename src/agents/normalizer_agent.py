@@ -1,9 +1,13 @@
 from typing import Dict, Any
+
 from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.agents.normalizer import LLMNormalizerOutput
 from shared.prompts.normalizer_agent import NORMALIZER_PROMPT
 from src.agents.base_agent import BaseAgent
+from src.registry import agent_registry
 
+
+@agent_registry.register("normalizer")
 class NormalizerAgent(BaseAgent[IngestState, LLMNormalizerOutput]):
     """
     Cleans raw content and generates a summary using structured output.

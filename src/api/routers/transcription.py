@@ -19,12 +19,11 @@ from shared.schemas.api.transcription import (
     TranscriptionEnhanceResponse,
     TranscriptionSaveRequest,
 )
-from src.repository.transcription_repository import transcription_repository
 from src.workflows.ingest_workflow import ingest_graph
-from src.workflows.transcription_workflow import transcription_workflow
+from src.workflows.enhancement_workflow import enhancement_graph
 from shared.schemas.models.transcription import Transcription
 from shared.schemas.workflow.ingest import IngestState
-from shared.schemas.workflow.transcription import TranscriptionEnhancementState
+from shared.schemas.workflow.enhancement import EnhancementState
 
 try:
     from amazon_transcribe.client import TranscribeStreamingClient
@@ -75,31 +74,26 @@ async def save_transcription(
 @router.post("/transcriptions/enhance", response_model=TranscriptionEnhanceResponse)
 async def enhance_transcription(body: TranscriptionEnhanceRequest) -> TranscriptionEnhanceResponse:
     """Run the AI enhancement pipeline on raw transcription text and return the result."""
-    context_text = (
-        f"[USER INSTRUCTION: {body.user_prompt}]\n\n{body.raw_text}"
-        if body.user_prompt
-        else body.raw_text
+    # REUSE the professional enhancement_workflow used by notes for consistency.
+    state = EnhancementState(
+        note_id=0,  # Transient transcription has no persistent ID yet
+        current_content=body.raw_text,
+        user_instruction=body.user_prompt or "Professional refactor and cleanup"
     )
-    initial = TranscriptionEnhancementState(
-        raw_text=body.raw_text,
-        current_text=context_text,
-        applied_layers=[],
-        action_items=None,
-        error=None,
-        user_prompt=body.user_prompt,
-    )
-    final: dict = await asyncio.to_thread(transcription_workflow.invoke, initial)  # type: ignore[arg-type]
 
-    if final.get("error"):
+    try:
+        # Run the same professional RAG/Refactor graph as OpenNoteScreen
+        final_state = await asyncio.to_thread(enhancement_graph.invoke, state)
+    except Exception as e:
         return TranscriptionEnhanceResponse(
             enhanced_text=body.raw_text,
             applied_layers=[],
-            error=final["error"],
+            error=f"Professional enhancement failed: {str(e)}",
         )
 
     return TranscriptionEnhanceResponse(
-        enhanced_text=final.get("current_text", body.raw_text),
-        applied_layers=final.get("applied_layers", []),
+        enhanced_text=final_state.get("enhanced_content", body.raw_text),
+        applied_layers=["professional_enhancement"],
     )
 
 
@@ -213,18 +207,10 @@ async def ws_transcription(websocket: WebSocket):
             enhanced = norm_result.get("content", raw_content)
         applied.append("normalizer")
 
-        # MarkdownFormatterAgent uses TranscriptionEnhancementState (TypedDict)
-        fmt_state: TranscriptionEnhancementState = {
-            "raw_text": raw_content,
-            "current_text": enhanced,
-            "applied_layers": [],
-            "action_items": None,
-            "error": None,
-            "user_prompt": None,
-        }
-        fmt_result = MarkdownFormatterAgent().run(fmt_state)
-        if fmt_result and not fmt_result.get("error"):
-            enhanced = fmt_result.get("current_text", enhanced)
+        # MarkdownFormatterAgent uses IngestState
+        fmt_result = MarkdownFormatterAgent().run(IngestState(content=enhanced))  # type: ignore[call-arg, arg-type]
+        if isinstance(fmt_result, dict):
+            enhanced = fmt_result.get("content", enhanced)
             applied.append("markdown_formatter")
 
     except Exception as exc:

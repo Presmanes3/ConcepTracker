@@ -1,37 +1,31 @@
-from shared.schemas.workflow.transcription import TranscriptionEnhancementState
-from src.agents.base_agent import BaseAgent
-from shared.prompts.speech_cleaner import SPEECH_CLEANER_PROMPT
+from typing import Any, Dict
 
-class SpeechCleanerAgent(BaseAgent):
-    """
-    Agent responsible for cleaning up raw transcriptions.
-    Removes filler words, stutters, and false starts without changing the meaning.
-    """
-    
-    def __init__(self):
+from shared.prompts.speech_cleaner import SPEECH_CLEANER_PROMPT
+from shared.schemas.agents.speech_cleaner import SpeechCleanerOutput
+from shared.schemas.workflow.ingest import IngestState
+from src.agents.base_agent import BaseAgent
+from src.registry import agent_registry
+
+
+@agent_registry.register("speech_cleaner")
+class SpeechCleanerAgent(BaseAgent[IngestState, SpeechCleanerOutput]):
+    """Remove filler words, stutters, and false starts from raw transcriptions."""
+
+    def __init__(self) -> None:
         super().__init__(task_name="speech_cleaner", temperature=0.1)
 
-    def run(self, state: TranscriptionEnhancementState) -> TranscriptionEnhancementState:
-        # Not used directly in LangGraph node, but required by BaseAgent
-        return self.process(state)
+    def run(self, state: IngestState) -> Dict[str, Any]:
+        """Clean *state.content* and return the deduplicated text.
 
-    def process(self, state: TranscriptionEnhancementState) -> TranscriptionEnhancementState:
-        """Processes the current text in the state and returns the cleaned version."""
-        text_to_clean = state["current_text"]
-        
-        if not text_to_clean.strip():
-            return state
-            
-        try:
-            messages = SPEECH_CLEANER_PROMPT.format_messages(text=text_to_clean)
-            response = self._call_llm(messages)
-            
-            state["current_text"] = response.content.strip()
-            state["applied_layers"].append("speech_cleaner")
-            
-        except Exception as e:
-            state["error"] = f"SpeechCleanerAgent failed: {str(e)}"
-            
-        return state
+        Args:
+            state: Ingest state; only ``content`` is consumed.
 
-speech_cleaner_agent = SpeechCleanerAgent()
+        Returns:
+            Dict with updated ``content`` key.
+        """
+        if not state.content.strip():
+            return {}
+
+        messages = SPEECH_CLEANER_PROMPT.format_messages(text=state.content)
+        data: SpeechCleanerOutput = self._call_llm(messages, output_schema=SpeechCleanerOutput)
+        return {"content": data.cleaned_text}

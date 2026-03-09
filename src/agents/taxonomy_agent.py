@@ -10,12 +10,15 @@ hard signals by the Gatekeeper and Linker:
   • is_component_of set → Gatekeeper always CREATEs (sub-concept stays separate)
 """
 from typing import Dict, Any
+
 from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.agents.taxonomy import ConceptTaxonomy
 from shared.prompts.taxonomy_agent import TAXONOMY_PROMPT
 from src.agents.base_agent import BaseAgent
+from src.registry import agent_registry
 
 
+@agent_registry.register("taxonomy")
 class ConceptTaxonomyAgent(BaseAgent[IngestState, ConceptTaxonomy]):
     """
     Classifies a note into a semantic taxonomy before retrieval.

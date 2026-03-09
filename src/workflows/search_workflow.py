@@ -14,14 +14,16 @@ from src.utils.rrf import rrf_fuse
 
 logger = logging.getLogger(__name__)
 
+# ── Module-level agent singleton ──────────────────────────────────────────────
+
+_query_expander = QueryExpansionAgent()
+
 
 # ── Node implementations ───────────────────────────────────────────────────────
 
 def expand_query(state: SearchState) -> Dict[str, Any]:
     """Generate alternative phrasings via QueryExpansionAgent."""
-    settings = config_repository.get_settings()
-    agent = QueryExpansionAgent(expansion_count=settings.search.expansion_count)
-    result = agent.run(state)
+    result = _query_expander.run(state)
     logger.debug(
         "[expand_query] query=%r  expansions=%r",
         state.query,
@@ -152,30 +154,26 @@ def rerank_results(state: SearchState) -> Dict[str, Any]:
 
 # ── Graph assembly ─────────────────────────────────────────────────────────────
 
-def _build_graph() -> StateGraph:
-    graph = StateGraph(SearchState)
+_graph = StateGraph(SearchState)
 
-    graph.add_node("expand_query", expand_query)
-    graph.add_node("embed_query", embed_query)
-    graph.add_node("retrieve_vector", retrieve_vector)
-    graph.add_node("retrieve_bm25", retrieve_bm25)
-    graph.add_node("fuse_results", fuse_results)
-    graph.add_node("rerank_results", rerank_results)
+_graph.add_node("expand_query", expand_query)
+_graph.add_node("embed_query", embed_query)
+_graph.add_node("retrieve_vector", retrieve_vector)
+_graph.add_node("retrieve_bm25", retrieve_bm25)
+_graph.add_node("fuse_results", fuse_results)
+_graph.add_node("rerank_results", rerank_results)
 
-    graph.add_edge(START, "expand_query")
-    graph.add_edge(START, "embed_query")
-    graph.add_edge("expand_query", "retrieve_bm25")
-    # embed_query must finish before retrieve_vector (needs the embedding).
-    graph.add_edge("embed_query", "retrieve_vector")
-    graph.add_edge("retrieve_bm25", "fuse_results")
-    graph.add_edge("retrieve_vector", "fuse_results")
-    graph.add_edge("fuse_results", "rerank_results")
-    graph.add_edge("rerank_results", END)
+_graph.add_edge(START, "expand_query")
+_graph.add_edge(START, "embed_query")
+_graph.add_edge("expand_query", "retrieve_bm25")
+# embed_query must finish before retrieve_vector (needs the embedding).
+_graph.add_edge("embed_query", "retrieve_vector")
+_graph.add_edge("retrieve_bm25", "fuse_results")
+_graph.add_edge("retrieve_vector", "fuse_results")
+_graph.add_edge("fuse_results", "rerank_results")
+_graph.add_edge("rerank_results", END)
 
-    return graph
-
-
-_compiled_graph = _build_graph().compile()
+search_graph = _graph.compile()
 
 
 def run_search(query: str) -> List[Dict[str, Any]]:
@@ -190,7 +188,7 @@ def run_search(query: str) -> List[Dict[str, Any]]:
     """
     initial_state = SearchState(query=query)
     # LangGraph returns a plain dict, not the typed state object.
-    result: Dict[str, Any] = _compiled_graph.invoke(initial_state)
+    result: Dict[str, Any] = search_graph.invoke(initial_state)
     results = result.get("reranked_results", [])
     logger.info(
         "[run_search] query=%r  results=%d  top_ids=%s",

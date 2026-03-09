@@ -1,9 +1,13 @@
 from typing import Dict, Any
+
 from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.agents.gatekeeper import GatekeeperResult
 from shared.prompts.gatekeeper import GATEKEEPER_PROMPT
 from src.agents.base_agent import BaseAgent
+from src.registry import agent_registry
 
+
+@agent_registry.register("gatekeeper")
 class GatekeeperAgent(BaseAgent[IngestState, GatekeeperResult]):
     """
     Decides if a note is new, a duplicate, or should be merged with an existing one.

@@ -20,7 +20,8 @@ from shared.schemas.models.link import Link
 
 from shared.schemas.workflow.ingest import IngestState
 from shared.schemas.workflow.enhancement import EnhancementState
-from src.workflows.ingest_workflow import ingest_graph, run_normalize
+from src.workflows.ingest_workflow import ingest_graph
+from src.workflows.normalize_workflow import run_normalize
 from src.workflows.enhancement_workflow import enhancement_graph
 
 router = APIRouter()
