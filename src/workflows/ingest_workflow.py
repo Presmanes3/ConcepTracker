@@ -18,13 +18,9 @@ from src.agents.taxonomy_agent import ConceptTaxonomyAgent
 from src.agents.gatekeeper_agent import GatekeeperAgent
 from src.agents.bidirectional_linker_agent import BidirectionalLinkerAgent
 
-# Geography sub-workflow
-from src.workflows.geo_workflow import geo_graph
-from shared.schemas.workflow.geo import GeoState
-
 # Utilities and services used in linking nodes
 from src.utils.embeddings import DISTANCE_DEDUP_CUTOFF, DISTANCE_LINKING_CUTOFF
-from src.utils.link_confidence import compute_link_confidence, SEND_TO_LLM_LOW
+from src.utils.link_confidence import compute_link_confidence
 from src.utils.rrf import rrf_fuse
 from src.services.search_service import search_service
 import logging
@@ -215,24 +211,8 @@ def save_all_links(state: IngestState):
     return {"links": state.links}
 
 def detect_archipelago(state: IngestState):
-    """
-    Bridge node: delegates all geography decisions to the geo_graph sub-workflow.
-    Converts IngestState → GeoState, invokes geo_graph, maps results back.
-    """
-    geo_input = GeoState(
-        note_id=state.note_id,
-        note_summary=state.summary or "",
-        links=state.links or [],
-    )
-
-    geo_result: dict = geo_graph.invoke(geo_input)
-
-    return {
-        "archipelago_action": geo_result.get("archipelago_action", "NONE"),
-        "archipelago_id": geo_result.get("archipelago_id"),
-        "archipelago_name": geo_result.get("archipelago_name"),
-        "archipelago_summary": geo_result.get("proposed_arch_summary"),
-    }
+    """Geography clustering — deferred. No-op until geo features are re-enabled."""
+    return {}
 
 # ── Conditional router ──────────────────────────────────────────────────────────────────
 

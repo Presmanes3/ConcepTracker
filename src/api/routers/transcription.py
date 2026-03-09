@@ -10,8 +10,6 @@ import os
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
-from src.agents.markdown_formatter_agent import MarkdownFormatterAgent
-from src.agents.normalizer_agent import NormalizerAgent
 from src.api.dependencies import get_transcription_repo
 from shared.schemas.api.notes import NoteIngestResponse
 from shared.schemas.api.transcription import (
@@ -198,23 +196,10 @@ async def ws_transcription(websocket: WebSocket):
         await websocket.send_text(json.dumps({"type": "done", "note_id": None, "content": ""}))
         return
 
+    # Pass raw content straight to the ingest pipeline; NormalizerAgent (node 1)
+    # handles cleaning, structuring, and Markdown formatting.
     enhanced = raw_content
     applied: list[str] = []
-    try:
-        # NormalizerAgent uses IngestState
-        norm_result = NormalizerAgent().run(IngestState(content=raw_content))  # type: ignore[call-arg, arg-type]
-        if isinstance(norm_result, dict):
-            enhanced = norm_result.get("content", raw_content)
-        applied.append("normalizer")
-
-        # MarkdownFormatterAgent uses IngestState
-        fmt_result = MarkdownFormatterAgent().run(IngestState(content=enhanced))  # type: ignore[call-arg, arg-type]
-        if isinstance(fmt_result, dict):
-            enhanced = fmt_result.get("content", enhanced)
-            applied.append("markdown_formatter")
-
-    except Exception as exc:
-        logger.warning("Enhancement pipeline failed: %s", exc)
 
     # Persist transcription record
     rec = Transcription(
